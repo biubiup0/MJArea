@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+    SchemaVersion="1.0"
+    AppVersion="6.1"
+    Author="biubiup0"
+    ProductCode="{8F1C7A62-4B3D-4F19-9E27-2D6A5C41B0E3}"
+    Name="MJArea"
+    Description="Annotate closed regions with area and perimeter, and highlight each region with a red thick outline."
+    Helpfile="./Contents/Help/MJArea-help.txt"
+>
+  <CompanyDetails
+      Name="MJArea (open source)"
+      Email="158665342+biubiup0@users.noreply.github.com"
+  />
+  <Components>
+    <RuntimeRequirements SupportPath="./Contents/Resources" />
+    <ComponentEntry
+        AppName="MJArea"
+        AppDescription="Area and perimeter annotation with red outline"
+        ModuleName="./Contents/Resources/MJArea.lsp"
+        PerDocument="True"
+    >
+      <Commands GroupName="MJArea">
+        <Command Global="MJA"    Local="MJA" />
+        <Command Global="MJAREA" Local="MJAREA" />
+        <Command Global="MJP"    Local="MJP" />
+        <Command Global="MJSET"  Local="MJSET" />
+        <Command Global="MJCLR"  Local="MJCLR" />
+        <Command Global="MJINFO" Local="MJINFO" />
+        <Command Global="MJTRUST" Local="MJTRUST" />
+        <Command Global="MJPLOT" Local="MJPLOT" />
+        <Command Global="MJPLOTQ" Local="MJPLOTQ" />
+        <Command Global="MJUNINSTALL" Local="MJUNINSTALL" />
+        <Command Global="MJHELP" Local="MJHELP" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>

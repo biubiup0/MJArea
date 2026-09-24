@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+._*
+
+# python
+__pycache__/
+*.pyc
+
+# build / test output
+*.bak
+*.before-mjarea
+*.mjarea.bak
+MJArea.lsp.bak
