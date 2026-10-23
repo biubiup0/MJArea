@@ -1,6 +1,6 @@
 # MJArea —— AutoCAD for Mac 面积 / 周长标注插件
 
-**下载安装包** → [MJArea-v6.3-macOS.zip](https://github.com/biubiup0/MJArea/releases/latest/download/MJArea-v6.3-macOS.zip)
+**下载安装包** → [MJArea-v6.4-macOS.zip](https://github.com/biubiup0/MJArea/releases/latest/download/MJArea-v6.4-macOS.zip)
 （解压后双击 `安装插件.command`，需要先完全退出 AutoCAD）
 
 在封闭区域里点一下 → 自动生成区域边界 → 在区域中心写出**面积 + 周长**文字，
@@ -56,6 +56,9 @@
 * **起点偏移 X/Y** 调排砖起点（相对区域包围盒左下角），
   **铺贴角度**可设 0/45/90…，斜铺直接填角度即可。
 * 单独图层（默认 `MJ-瓷砖`，灰色 0.13mm），不影响原有图形；要清理直接删这个图层。
+* 每次铺贴生成的线条**自动打成一个对象组**（组名 `MJ-瓷砖`、`MJ-瓷砖-2`…），
+  点一下就能选中整片挪动/复制/删除；要拆开用 `UNGROUP`，
+  临时不想按组选就按 `Ctrl+H`（或 `PICKSTYLE=0`）。
 * 命令：`MJTILE` 铺贴，**`PT`**（或 `MJTSET`）设置。
 
 **4. 工具栏「我的工具」**

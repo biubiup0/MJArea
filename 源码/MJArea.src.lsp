@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.3")
+(setq *mj-ver* "6.4")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2550,6 +2550,37 @@
                  (cons 11 (list (car p2) (cadr p2) 0.0))))
 )
 
+;; put freshly drawn entities into a named object group, so one click
+;; selects the whole tile layout (move / copy / erase as one object)
+(defun mj:group-new (ents nm / data g gd dict base name k)
+  (if (null ents)
+    nil
+    (progn
+      ;; DXF: 70 = 1 unnamed / 0 named, 71 = 1 selectable / 0 not
+      (setq data (list '(0 . "GROUP") '(100 . "AcDbGroup") '(300 . "")
+                       '(70 . 0) '(71 . 1)))
+      (foreach e ents (setq data (append data (list (cons 340 e)))))
+      (setq g (if entmakex (entmakex data) nil))
+      (if g
+        (progn
+          (setq gd (dictsearch (namedobjdict) "ACAD_GROUP"))
+          (if gd
+            (progn
+              (setq dict (cdr (assoc -1 gd)) base nm name nm k 1)
+              (while (dictsearch dict name)
+                (setq k (1+ k) name (strcat base "-" (itoa k)))
+              )
+              (if (dictadd dict name g) name nil)
+            )
+            nil
+          )
+        )
+        nil
+      )
+    )
+  )
+)
+
 (defun mj:tile-sync-layer ( / nm d)
   (setq nm (mj:get 'tilelayer))
   (mj:ensure-layer nm (mj:get 'tilecolor) (mj:get 'tilelw))
@@ -2582,7 +2613,7 @@
 ;; draw the double line grid inside one polygon, returns the line count
 (defun mj:tile-draw (poly / ang c s box ax ay gp gb L W g P Q ox oy
                        umin umax vmin vmax m0 m1 n0 n1 m n u0 v0 d x lo hi
-                       ints iv cnt run p1 p2)
+                       ints iv cnt run p1 p2 old grp)
   (setq L (mj:get 'tilel) W (mj:get 'tilew) g (mj:get 'tilegap))
   (cond
     ((or (null poly) (< (length poly) 3))
@@ -2611,7 +2642,7 @@
           0
         )
         (progn
-          (setq cnt 0)
+          (setq cnt 0 old (entlast))
           ;; ---- vertical joints (u = const), two lines per joint ----
           (setq m m0)
           (while (<= m m1)
@@ -2649,6 +2680,16 @@
               )
             )
             (setq n (1+ n))
+          )
+          ;; group the fresh lines so the whole layout selects as one object
+          (if (> cnt 0)
+            (progn
+              (setq grp (mj:group-new (mj:new-ents old) "MJ-瓷砖"))
+              (if grp
+                (prompt (strcat "\n已把本次铺贴的 " (itoa cnt) " 条线编成一组: " grp))
+                (prompt "\n提示: 线条已画好，但自动编组失败（可手动 GROUP）。")
+              )
+            )
           )
           cnt
         )

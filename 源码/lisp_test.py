@@ -597,7 +597,8 @@ for _name in ("entmake", "entget", "entmod", "entupd", "entlast", "entnext",
               "vlax-safearray->list", "vla-get-Area", "vla-get-Perimeter",
               "vla-GetBoundingBox", "read-line", "write-line", "initget",
               "getpoint", "getkword", "getint", "getreal", "getstring",
-              "vl-catch-all-apply", "vl-catch-all-error-p"):
+              "vl-catch-all-apply", "vl-catch-all-error-p", "entmakex", "namedobjdict",
+              "dictsearch", "dictadd"):
     BUILTINS.setdefault(_name, (lambda *a, **k: None))
 
 
@@ -1078,6 +1079,30 @@ def main():
     check("tile-draw: 90 degree rotation still fills the room", len(made) > 0,
           "made %d" % len(made))
     ev("(mj:set 'tileang 0.0)")
+
+    # 27) the generated lines are wrapped in a named object group
+    gdata = []
+    added = {}
+    BUILTINS["ENTMAKEX"] = lambda lst: (gdata.append(lst), "GROUPENT")[1]
+    BUILTINS["NAMEDOBJDICT"] = lambda: Dot([-1, "ROOTDICT"])
+    BUILTINS["DICTSEARCH"] = lambda d, n: (
+        [Dot([-1, "GROUPDICT"])] if n == "ACAD_GROUP"
+        else ([Dot([-1, "X"])] if n in added else None))
+    BUILTINS["DICTADD"] = lambda d, n, e: (added.__setitem__(n, e), True)[1]
+    env["ENTMAKEX"] = True
+    env["ENTS"] = ev("(list 'E1 'E2 'E3)")
+    nm = ev('(mj:group-new ENTS "MJ-瓷砖")')
+    check("group: first group name used", nm == "MJ-瓷砖", repr(nm))
+    refs = [q for q in gdata[-1] if isinstance(q, list) and q[0] == 340]
+    check("group: every line referenced once", len(refs) == 3, repr(refs))
+    flag70 = [q for q in gdata[-1] if isinstance(q, list) and q[0] == 70]
+    flag71 = [q for q in gdata[-1] if isinstance(q, list) and q[0] == 71]
+    check("group: named (70=0)", bool(flag70) and flag70[0][1] == 0, repr(flag70))
+    check("group: selectable (71=1)", bool(flag71) and flag71[0][1] == 1, repr(flag71))
+    check("group: group added to ACAD_GROUP dictionary",
+          added.get("MJ-瓷砖") == "GROUPENT", repr(added))
+    nm2 = ev('(mj:group-new ENTS "MJ-瓷砖")')
+    check("group: duplicate name gets a suffix", nm2 == "MJ-瓷砖-2", repr(nm2))
 
     print()
     if failures:
