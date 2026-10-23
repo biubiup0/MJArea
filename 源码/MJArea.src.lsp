@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.4")
+(setq *mj-ver* "6.5")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2607,7 +2607,7 @@
                   "," (mj:tile-num (mj:get 'tileoy))
                   "   角度: " (mj:tile-num (mj:get 'tileang)) "度"
                   "   图层: " (mj:get 'tilelayer)
-                  "   修改设置: PT"))
+                  "   更多设置: M / MJTSET"))
 )
 
 ;; draw the double line grid inside one polygon, returns the line count
@@ -2726,16 +2726,6 @@
   )
 )
 
-(defun mj:tile-point-run (pt / total n)
-  (setq total 0)
-  (while pt
-    (setq n (mj:tile-from-point pt))
-    (setq total (+ total n))
-    (setq pt (getpoint "\n继续点取下一个铺贴区域 (回车结束): "))
-  )
-  total
-)
-
 (defun mj:tile-select ( / ss i n e ty total segs m d)
   (prompt "\n[选择已有区域] 可多选、可框选（闭合多段线/圆/椭圆/面域/填充/直线圆弧围成的框）")
   (setq ss (ssget (list (cons 0 "LINE,ARC,LWPOLYLINE,POLYLINE,CIRCLE,ELLIPSE,SPLINE,REGION,HATCH"))))
@@ -2846,11 +2836,21 @@
   (mj:cmd-tile-set)
 )
 
-;; PT = short name for the tile settings (the installer also adds
-;; "PT, *MJTSET" to acadUser.pgp, because some Mac builds refuse to
-;; register a two letter Lisp command)
-(defun c:PT ()
-  (mj:cmd-tile-set)
+;; ask the three main sizes for this run: Enter (or Space) keeps the value
+;; shown in <>; the last Enter / Space starts the layout
+(defun mj:tile-ask-size ( / k)
+  (prompt "\n---- 本次铺贴尺寸（直接回车 = 用括号里的值）----")
+  (setq k (getreal (strcat "\n瓷砖长 <" (mj:tile-num (mj:get 'tilel)) ">: ")))
+  (if (and k (> k 0.0)) (mj:set 'tilel k))
+  (setq k (getreal (strcat "\n瓷砖宽 <" (mj:tile-num (mj:get 'tilew)) ">: ")))
+  (if (and k (> k 0.0)) (mj:set 'tilew k))
+  (setq k (getreal (strcat "\n美缝尺寸 <" (mj:tile-num (mj:get 'tilegap))
+                           ">  (回车/空格 = 生成铺贴): ")))
+  (if (and k (>= k 0.0)) (mj:set 'tilegap k))
+  (prompt (strcat "\n正在按 " (mj:tile-num (mj:get 'tilel)) " x " (mj:tile-num (mj:get 'tilew))
+                  " 砖、美缝 " (mj:tile-num (mj:get 'tilegap)) " 生成…"))
+  (mj:ini-save)
+  t
 )
 
 (defun mj:cmd-tile ( / pt cnt)
@@ -2860,25 +2860,26 @@
   (mj:tile-header)
   (setq cnt 0)
   (initget "S M")
-  (setq pt (getpoint "\n点取铺贴区域内部一点 或 [选择已有线框(S)/设置(M)] <选择线框>: "))
+  (setq pt (getpoint "\n点取要铺贴的封闭空间内部一点 或 [选择线框(S)/其他设置(M)]: "))
   (cond
     ((eq (type pt) 'STR)
       (if (= pt "M")
         (progn (mj:tile-set) (setq cnt -1))
-        (setq cnt (mj:tile-select))
+        (progn (mj:tile-ask-size) (setq cnt (mj:tile-select)))
       )
     )
-    (pt (setq cnt (mj:tile-point-run pt)))
-    (t (setq cnt (mj:tile-select)))
+    (pt (progn (mj:tile-ask-size) (setq cnt (mj:tile-from-point pt))))
+    (t (progn (mj:tile-ask-size) (setq cnt (mj:tile-select))))
   )
   (cond
     ((= cnt -1)
-      (prompt "\n设置已更新，再次输入 MJTILE 即可铺贴。"))
+      (prompt "\n设置已更新，再次输入 PT 即可铺贴。"))
     ((> cnt 0)
-      (prompt (strcat "\n瓷砖铺贴完成：共绘制 " (itoa cnt) " 段砖缝线（每道缝是双线）。"))
+      (prompt (strcat "\n瓷砖铺贴完成：共 " (itoa cnt) " 条砖缝线，已自动打组。"))
       (prompt (strcat "\n砖 " (mj:tile-num (mj:get 'tilel)) " x " (mj:tile-num (mj:get 'tilew))
                       "   美缝 " (mj:tile-num (mj:get 'tilegap))
-                      "   图层 " (mj:get 'tilelayer)))
+                      "   图层 " (mj:get 'tilelayer)
+                      "   （这次尺寸已记为下次默认值）"))
     )
     (t (prompt "\n没有绘制任何线条。"))
   )
@@ -2891,6 +2892,13 @@
 )
 
 (defun c:MJT ()
+  (mj:cmd-tile)
+)
+
+;; PT = the tile command (the installer writes "PT, *MJTILE" into
+;; acadUser.pgp, because some Mac builds refuse to register a two
+;; letter Lisp command).  Use MJTSET, or PT -> M, for the settings menu.
+(defun c:PT ()
   (mj:cmd-tile)
 )
 
@@ -3182,8 +3190,8 @@
   (prompt "\nMJPLOTQ 快速批量打印：用上次的设置，框选图框后直接出图（工具栏按钮）")
   (prompt "\nMJA     与 MJ 相同（备用名称）")
   (prompt "\n")
-  (prompt "\nMJTILE  瓷砖铺贴：点区域内部一点，按设定砖规格铺双线砖缝网格")
-  (prompt "\nMJTSET  瓷砖设置（快捷键 PT）：砖长 / 砖宽 / 美缝宽度 / 起点偏移 / 角度")
+  (prompt "\nPT      瓷砖铺贴：点封闭空间内部一点 -> 输入砖长/砖宽/美缝 -> 回车生成")
+  (prompt "\nMJTSET  瓷砖高级设置：起点偏移 / 角度 / 图层 / 颜色 / 线宽")
   (prompt "\n")
   (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印 / 瓷砖铺贴")
   (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 卸载插件")
@@ -3201,7 +3209,7 @@
     (prompt (strcat "\nMJArea " *mj-ver*
                     " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴)"))
     (prompt "\n命令: MJ (点内部点自动BO / 输 S 选线框)   备用名 MJA MJP")
-    (prompt "\n瓷砖 MJTILE (铺贴)   PT/MJTSET (瓷砖设置)   设置 MJSET   清除 MJCLR   帮助 MJHELP")
+    (prompt "\n瓷砖 PT (铺贴: 点空间->填尺寸->回车)   MJTSET (高级设置)   设置 MJSET   帮助 MJHELP")
     (prompt (strcat "\n自检: "
                     (if (and mj:cmd-main mj:header mj:assemble)
                       "内部函数正常"

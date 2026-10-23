@@ -99,9 +99,9 @@ PY
 
   # ---------- 4. 去掉写进 acadUser.pgp 的别名（MJ / 旧版 LI） ----------
   PGP="$SUPPORT/acadUser.pgp"
-  if [ -f "$PGP" ] && grep -q -E "\*MJA|\*MJTSET" "$PGP" 2>/dev/null; then
+  if [ -f "$PGP" ] && grep -q -E "\*MJA|\*MJTSET|\*MJTILE" "$PGP" 2>/dev/null; then
     cp "$PGP" "$PGP.bak"
-    grep -v "\*MJA" "$PGP" | grep -v "\*MJTSET" | grep -v "MJArea" > "$PGP.tmp"
+    grep -v "\*MJA" "$PGP" | grep -v "\*MJTSET" | grep -v "\*MJTILE" | grep -v "MJArea" > "$PGP.tmp"
     mv "$PGP.tmp" "$PGP"
     echo "[4/4] 已从 acadUser.pgp 中移除 MJ / PT / LI 别名（备份：acadUser.pgp.bak）"
   else
