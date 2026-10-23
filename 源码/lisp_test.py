@@ -598,7 +598,7 @@ for _name in ("entmake", "entget", "entmod", "entupd", "entlast", "entnext",
               "vla-GetBoundingBox", "read-line", "write-line", "initget",
               "getpoint", "getkword", "getint", "getreal", "getstring",
               "vl-catch-all-apply", "vl-catch-all-error-p", "entmakex", "namedobjdict",
-              "dictsearch", "dictadd"):
+              "dictsearch", "dictadd", "dictnext", "dictremove", "entdel"):
     BUILTINS.setdefault(_name, (lambda *a, **k: None))
 
 
@@ -1051,7 +1051,7 @@ def main():
         return (sorted({round(a[0], 6) for a in vert}),
                 sorted({round(a[1], 6) for a in horz}))
 
-    nline = ev("(mj:tile-draw ROOM)")
+    nline = ev("(mj:tile-draw ROOM nil)")
     xs, ys = axes()
     check("tile-draw: line count matches entities", nline == len(made),
           "reported %r, made %d" % (nline, len(made)))
@@ -1068,14 +1068,14 @@ def main():
     # 26) offset moves the whole grid; 90 degree rotation still fills the room
     made.clear()
     ev("(mj:set 'tileox 100.0)")
-    ev("(mj:tile-draw ROOM)")
+    ev("(mj:tile-draw ROOM nil)")
     xs2, _ = axes()
     check("tile-draw: offset 100 shifts the joints by 100",
           900.0 in xs2 and 903.0 in xs2 and 800.0 not in xs2, "got %r" % (xs2,))
     made.clear()
     ev("(mj:set 'tileox 0.0)")
     ev("(mj:set 'tileang 90.0)")
-    ev("(mj:tile-draw ROOM)")
+    ev("(mj:tile-draw ROOM nil)")
     check("tile-draw: 90 degree rotation still fills the room", len(made) > 0,
           "made %d" % len(made))
     ev("(mj:set 'tileang 0.0)")
@@ -1103,6 +1103,32 @@ def main():
           added.get("MJ-瓷砖") == "GROUPENT", repr(added))
     nm2 = ev('(mj:group-new ENTS "MJ-瓷砖")')
     check("group: duplicate name gets a suffix", nm2 == "MJ-瓷砖-2", repr(nm2))
+
+    # 28) the clicked point becomes the tile start (grid origin)
+    made.clear()
+    ev("(mj:set 'tileang 0.0)")
+    ev("(mj:set 'tileox 0.0)")
+    ev("(mj:set 'tileoy 0.0)")
+    env["ORG"] = ev("(list 400.0 300.0 0.0)")
+    ev("(mj:tile-draw ROOM ORG)")
+    xs3, ys3 = axes()
+    check("tile origin: tile corner sits on the clicked point",
+          400.0 in xs3 and 397.0 in xs3 and 300.0 in ys3 and 297.0 in ys3,
+          "x=%r y=%r" % (xs3, ys3))
+    check("tile origin: next joint is one tile + grout away",
+          1200.0 in xs3 and 800.0 in ys3, "x=%r y=%r" % (xs3, ys3))
+
+    # 29) xdata round trip (room outline + sizes kept for M -> 1 edits)
+    q = ("(mj:tile-xdata-parse (mj:tile-xdata-make 750.0 1500.0 2.0 45.0"
+         " (list 10.0 20.0 0.0)"
+         " (list (list 0.0 0.0) (list 10.0 0.0) (list 10.0 10.0))))")
+    check("xdata: tile length", ev("(cdr (assoc 'l %s))" % q) == 750.0)
+    check("xdata: tile width", ev("(cdr (assoc 'w %s))" % q) == 1500.0)
+    check("xdata: grout", ev("(cdr (assoc 'gap %s))" % q) == 2.0)
+    check("xdata: angle", ev("(cdr (assoc 'ang %s))" % q) == 45.0)
+    check("xdata: origin x", ev("(car (cdr (assoc 'org %s)))" % q) == 10.0)
+    check("xdata: polygon kept", ev("(length (cdr (assoc 'poly %s)))" % q) == 3)
+    check("xdata: junk rejected", ev("(mj:tile-xdata-parse (list (cons 1001 \"MJAREA\")))") is None)
 
     print()
     if failures:
