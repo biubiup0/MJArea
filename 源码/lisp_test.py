@@ -320,7 +320,10 @@ def _cos(x):
 
 
 @bi("atan")
-def _atan(x):
+def _atan(x, *rest):
+    # AutoLISP: (atan y) or (atan y x)   -- the 2-argument form is atan2
+    if rest:
+        return math.atan2(x, rest[0])
     return math.atan(x)
 
 
@@ -348,6 +351,11 @@ def _cadr(x):
 @bi("caddr")
 def _caddr(x):
     return _car(_cdr(_cdr(x)))
+
+
+@bi("cddr")
+def _cddr(x):
+    return _cdr(_cdr(x))
 
 
 @bi("cadddr")
@@ -962,6 +970,114 @@ def main():
           ev("(mj:row-of (list 0 0 100 50) 50.0)") != ev("(mj:row-of (list 0 300 100 350) 50.0)"),
           "%r vs %r" % (ev("(mj:row-of (list 0 0 100 50) 50.0)"),
                         ev("(mj:row-of (list 0 300 100 350) 50.0)")))
+
+    # 21) tile grid: clipping a joint line against the room outline
+    sq2 = "(list (list 0 0) (list 100 0) (list 100 100) (list 0 100))"
+    env["SQ2"] = ev(sq2)
+    ys = ev("(mj:tile-xcross 50 SQ2)")
+    check("tile: vertical joint crosses a square once",
+          len(as_list(ys)) == 2 and close(ys[0], 0.0) and close(ys[1], 100.0),
+          "got %r" % (ys,))
+    iv = ev("(mj:tile-pairs (mj:tile-xcross 50 SQ2))")
+    check("tile: square -> one inside interval",
+          len(as_list(iv)) == 1 and close(iv[0][0], 0.0) and close(iv[0][1], 100.0),
+          "got %r" % (iv,))
+    cpoly = ("(list (list 0 0) (list 100 0) (list 100 30) (list 30 30)"
+             " (list 30 70) (list 100 70) (list 100 100) (list 0 100))")
+    iv2 = ev("(mj:tile-pairs (mj:tile-xcross 50 %s))" % cpoly)
+    check("tile: C-shaped room -> two intervals",
+          len(as_list(iv2)) == 2 and close(iv2[0][1], 30.0) and close(iv2[1][0], 70.0),
+          "got %r" % (iv2,))
+    check("tile: outside the room -> no interval",
+          nil(ev("(mj:tile-pairs (mj:tile-xcross 150 %s))" % cpoly)))
+    xs = ev("(mj:tile-ycross 50 %s)" % cpoly)
+    check("tile: horizontal joint in C room",
+          len(as_list(xs)) == 2 and close(xs[0], 0.0) and close(xs[1], 30.0),
+          "got %r" % (xs,))
+
+    # 22) bulge arc tessellation used by the tile clipper
+    arc = ev("(mj:tile-flat (list (list '(0 0 0) 1.0) (list '(100 0 0) 0.0)) T)")
+    ys2 = [p[1] for p in as_list(arc)]
+    check("tile: bulge=1 flattens to a half circle below the chord",
+          close(min(ys2), -50.0, 0.5) and close(max(ys2), 0.0, 1e-9)
+          and len(as_list(arc)) > 6, "min=%r n=%d" % (min(ys2), len(as_list(arc))))
+    flat_sq = ev("(mj:tile-flat (list (list '(0 0 0) 0.0) (list '(10 0 0) 0.0)"
+                 " (list '(10 10 0) 0.0) (list '(0 10 0) 0.0)) T)")
+    check("tile: straight polygon flattens unchanged",
+          len(as_list(flat_sq)) == 4, "got %r" % (flat_sq,))
+
+    # 23) rotated grid frame round trip
+    env["ANG"] = ev("(/ pi 6.0)")
+    g = ev("(mj:tile-w2g (list 30.0 40.0) 0.0 0.0 (cos ANG) (sin ANG))")
+    g_lisp = "(list %.12f %.12f)" % (g[0], g[1])
+    b = ev("(mj:tile-g2w (car %s) (cadr %s) 0.0 0.0 (cos ANG) (sin ANG))"
+           % (g_lisp, g_lisp))
+    check("tile: world<->grid round trip at 30 degrees",
+          close(b[0], 30.0) and close(b[1], 40.0), "got %r" % (b,))
+
+    # 24) grid helper arithmetic
+    check("tile-floor: negative", ev("(mj:tile-floor -2.3)") == -3)
+    check("tile-ceil: negative", ev("(mj:tile-ceil -2.3)") == -2)
+    check("tile-ceil: positive", ev("(mj:tile-ceil 2.1)") == 3)
+    check("tile-num: integer real", ev("(mj:tile-num 800.0)") == "800")
+    check("tile-num: decimal", ev("(mj:tile-num 2.5)") == "2.5")
+
+    # 25) full grid generation: 2000 x 1500 room, 800 x 500 tiles, 3 mm joint
+    made = []
+    BUILTINS["ENTMAKE"] = lambda lst: (made.append(lst), True)[1]
+    ev("(mj:defaults)")
+    ev("(mj:set 'tilel 800.0)")
+    ev("(mj:set 'tilew 500.0)")
+    ev("(mj:set 'tilegap 3.0)")
+    ev("(mj:set 'tileox 0.0)")
+    ev("(mj:set 'tileoy 0.0)")
+    ev("(mj:set 'tileang 0.0)")
+    env["ROOM"] = ev("(list (list 0 0) (list 2000 0) (list 2000 1500) (list 0 1500))")
+
+    def ends(ent):
+        a = b = None
+        for q in ent:
+            if isinstance(q, list) and len(q) >= 3 and q[0] == 10:
+                a = q[1:]
+            if isinstance(q, list) and len(q) >= 3 and q[0] == 11:
+                b = q[1:]
+        return a, b
+
+    def axes():
+        segs = [ends(p) for p in made]
+        vert = [a for a, b in segs if a and b and abs(a[0] - b[0]) < 1e-9]
+        horz = [a for a, b in segs if a and b and abs(a[1] - b[1]) < 1e-9]
+        return (sorted({round(a[0], 6) for a in vert}),
+                sorted({round(a[1], 6) for a in horz}))
+
+    nline = ev("(mj:tile-draw ROOM)")
+    xs, ys = axes()
+    check("tile-draw: line count matches entities", nline == len(made),
+          "reported %r, made %d" % (nline, len(made)))
+    check("tile-draw: vertical joints at 800/803 and 1603/1606",
+          [x for x in xs if 1 < x < 1999] == [800.0, 803.0, 1603.0, 1606.0],
+          "got %r" % (xs,))
+    check("tile-draw: horizontal joints at 500/503 and 1003/1006",
+          [y for y in ys if 1 < y < 1499] == [500.0, 503.0, 1003.0, 1006.0],
+          "got %r" % (ys,))
+    check("tile-draw: every joint stays inside the room",
+          all(0 <= x <= 2000 for x in xs) and all(0 <= y <= 1500 for y in ys),
+          "x=%r y=%r" % (xs, ys))
+
+    # 26) offset moves the whole grid; 90 degree rotation still fills the room
+    made.clear()
+    ev("(mj:set 'tileox 100.0)")
+    ev("(mj:tile-draw ROOM)")
+    xs2, _ = axes()
+    check("tile-draw: offset 100 shifts the joints by 100",
+          900.0 in xs2 and 903.0 in xs2 and 800.0 not in xs2, "got %r" % (xs2,))
+    made.clear()
+    ev("(mj:set 'tileox 0.0)")
+    ev("(mj:set 'tileang 90.0)")
+    ev("(mj:tile-draw ROOM)")
+    check("tile-draw: 90 degree rotation still fills the room", len(made) > 0,
+          "made %d" % len(made))
+    ev("(mj:set 'tileang 0.0)")
 
     print()
     if failures:

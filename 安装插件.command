@@ -164,7 +164,8 @@ echo
 echo "接下来："
 echo "  1) 完全退出 AutoCAD（Cmd+Q），再重新打开；"
 echo "  2) 命令行输入  MJ   回车 → 框选房间/区域，即出面积周长 + 红色加粗轮廓；"
-echo "  3) MJINFO 自检 / MJHELP 帮助 / MJSET 改设置 / MJCLR 清除标注。"
+echo "  3) MJTILE 瓷砖铺贴 / MJTSET 瓷砖设置（砖长宽、美缝、起点偏移、角度）；"
+echo "  4) MJINFO 自检 / MJHELP 帮助 / MJSET 改设置 / MJCLR 清除标注。"
 echo
 echo "LI 仍然是原来的 LIST（列表查看）命令，不受影响。"
 echo "卸载请双击“卸载插件.command”。"

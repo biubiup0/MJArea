@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.1")
+(setq *mj-ver* "6.2")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -345,6 +345,15 @@
     ("plotdir"   plotdir   nil)
     ("plotspace" plotspace nil)
     ("plotdebug" plotdebug nil)
+    ("tilel"     tilel     R)
+    ("tilew"     tilew     R)
+    ("tilegap"   tilegap   R)
+    ("tileox"    tileox    R)
+    ("tileoy"    tileoy    R)
+    ("tileang"   tileang   R)
+    ("tilelayer" tilelayer nil)
+    ("tilecolor" tilecolor I)
+    ("tilelw"    tilelw    I)
   )
 )
 
@@ -376,6 +385,15 @@
       (cons 'plotdir   "")
       (cons 'plotspace "M")
       (cons 'plotdebug "0")
+      (cons 'tilel     800.0)
+      (cons 'tilew     800.0)
+      (cons 'tilegap   3.0)
+      (cons 'tileox    0.0)
+      (cons 'tileoy    0.0)
+      (cons 'tileang   0.0)
+      (cons 'tilelayer "MJ-瓷砖")
+      (cons 'tilecolor 8)
+      (cons 'tilelw    13)
     )
   )
 )
@@ -2303,6 +2321,526 @@
 ;; 3) Tianzheng DWG -> T3  -  placeholder
 
 
+;; ------------------------------------------------------------
+;; tile layout  (MJTILE / MJTSET)
+;;
+;; Every joint is drawn as TWO parallel lines; the space between them
+;; is the grout (mei feng).  The grid is clipped exactly against the
+;; room outline, so the cut tiles at the walls stay correct.
+;; All geometry runs in a rotated frame: u along the tile length,
+;; v along the tile width.
+;; ------------------------------------------------------------
+
+(defun mj:tile-floor (x / n)
+  (setq n (fix x))
+  (if (< x n) (setq n (1- n)))
+  n
+)
+
+(defun mj:tile-ceil (x / n)
+  (setq n (fix x))
+  (if (> x n) (setq n (1+ n)))
+  n
+)
+
+;; short number for messages: 800 instead of 800.00
+(defun mj:tile-num (v / s)
+  (cond
+    ((null v) "0")
+    ((equal v (fix v) 0.000001) (itoa (fix v)))
+    (t (rtos v 2 1))
+  )
+)
+
+(defun mj:tile-bbox (pts / mnx mny mxx mxy p)
+  (foreach p pts
+    (if (null mnx)
+      (setq mnx (car p) mny (cadr p) mxx (car p) mxy (cadr p))
+      (progn
+        (if (< (car p) mnx) (setq mnx (car p)))
+        (if (< (cadr p) mny) (setq mny (cadr p)))
+        (if (> (car p) mxx) (setq mxx (car p)))
+        (if (> (cadr p) mxy) (setq mxy (cadr p)))
+      )
+    )
+  )
+  (list mnx mny mxx mxy)
+)
+
+;; world -> grid (rotate by -ang around the anchor point)
+(defun mj:tile-w2g (p ax ay c s / dx dy)
+  (setq dx (- (car p) ax) dy (- (cadr p) ay))
+  (list (+ (* dx c) (* dy s)) (+ (* (- 0.0 dx) s) (* dy c)))
+)
+
+;; grid -> world
+(defun mj:tile-g2w (u v ax ay c s)
+  (list (+ ax (- (* u c) (* v s))) (+ ay (+ (* u s) (* v c))))
+)
+
+;; points along one arc segment (AutoLISP bulge convention)
+(defun mj:tile-arc-pts (p1 p2 b / x1 y1 x2 y2 c th half h nx ny cx cy r a1 n k ang out)
+  (setq x1 (car p1) y1 (cadr p1) x2 (car p2) y2 (cadr p2))
+  (setq c (distance (list x1 y1 0.0) (list x2 y2 0.0)))
+  (if (<= c 0.000000001)
+    '()
+    (progn
+      (setq th (* 4.0 (atan b)) half (/ th 2.0))
+      (setq h (if (< (abs (cos half)) 0.000000001)
+                0.0
+                (* (/ c 2.0) (/ (cos half) (sin half)))
+              ))
+      ;; unit left normal of p1 -> p2; the centre sits on that side
+      (setq nx (/ (- y1 y2) c) ny (/ (- x2 x1) c))
+      (setq cx (+ (/ (+ x1 x2) 2.0) (* nx h)))
+      (setq cy (+ (/ (+ y1 y2) 2.0) (* ny h)))
+      (setq r (sqrt (+ (* (/ c 2.0) (/ c 2.0)) (* h h))))
+      (setq a1 (atan (- y1 cy) (- x1 cx)))
+      (setq n (fix (+ 3.0 (* 12.0 (abs b)))))
+      (if (> n 72) (setq n 72))
+      (if (< n 3) (setq n 3))
+      (setq out '() k 1)
+      (while (< k n)
+        (setq ang (+ a1 (* th (/ (float k) n))))
+        (setq out (cons (list (+ cx (* r (cos ang))) (+ cy (* r (sin ang)))) out))
+        (setq k (1+ k))
+      )
+      (reverse out)
+    )
+  )
+)
+
+;; vertex list with bulges -> plain 2D polygon (arcs are tessellated)
+(defun mj:tile-flat (verts closed / out n i p1 p2 b q)
+  (setq n (length verts) out '() i 0)
+  (while (< i n)
+    (setq p1 (car (nth i verts)))
+    (setq out (cons (list (car p1) (cadr p1)) out))
+    (setq p2 (if (< (1+ i) n)
+               (car (nth (1+ i) verts))
+               (if closed (car (car verts)) nil)
+             ))
+    (setq b (cadr (nth i verts)))
+    (if (and p2 b (/= b 0.0) (or (< (1+ i) n) closed))
+      (foreach q (mj:tile-arc-pts p1 p2 b) (setq out (cons q out)))
+    )
+    (setq i (1+ i))
+  )
+  (reverse out)
+)
+
+(defun mj:tile-circle-pts (c r n / out k a)
+  (setq out '() k 0)
+  (while (< k n)
+    (setq a (* 2.0 pi (/ (float k) n)))
+    (setq out (cons (list (+ (car c) (* r (cos a))) (+ (cadr c) (* r (sin a)))) out))
+    (setq k (1+ k))
+  )
+  (reverse out)
+)
+
+(defun mj:tile-ellipse-pts (e n / d c mx ux uy rt out k a)
+  (setq d (entget e) c (cdr (assoc 10 d)) mx (cdr (assoc 11 d)) rt (cdr (assoc 40 d)))
+  (setq ux (car mx) uy (cadr mx) out '() k 0)
+  (while (< k n)
+    (setq a (* 2.0 pi (/ (float k) n)))
+    (setq out (cons (list (+ (car c) (* ux (cos a)) (- 0.0 (* uy rt (sin a))))
+                          (+ (cadr c) (* uy (cos a)) (* ux rt (sin a))))
+                    out))
+    (setq k (1+ k))
+  )
+  (reverse out)
+)
+
+;; closed outline of one entity -> plain 2D polygon (nil if not possible)
+(defun mj:tile-poly (e / d ty m tmp poly)
+  (setq d (entget e) ty (cdr (assoc 0 d)))
+  (cond
+    ((= ty "LWPOLYLINE") (mj:tile-flat (mj:lw-verts e) t))
+    ((= ty "POLYLINE")   (mj:tile-flat (mj:pl-verts e) t))
+    ((= ty "CIRCLE")     (mj:tile-circle-pts (cdr (assoc 10 d)) (cdr (assoc 40 d)) 72))
+    ((= ty "ELLIPSE")    (mj:tile-ellipse-pts e 72))
+    (t
+      ;; REGION / HATCH / SPLINE: let BOUNDARY build a temp polyline
+      (setq m (mj:measure e))
+      (if m
+        (progn
+          (setq tmp (mj:boundary-from-point (mj:inside-point m)))
+          (if tmp
+            (progn
+              (setq poly (mj:tile-flat (mj:lw-verts tmp) t))
+              (mj:erase-ent tmp)
+              poly
+            )
+            nil
+          )
+        )
+        nil
+      )
+    )
+  )
+)
+
+;; ascending sort (the engine has no reliable vl-sort on every build)
+(defun mj:tile-sort (lst / out rest m)
+  (setq rest lst out '())
+  (while rest
+    (setq m (apply 'min rest))
+    (setq out (append out (list m)))
+    (setq rest (mj:tile-drop rest m))
+  )
+  out
+)
+
+(defun mj:tile-drop (lst v / out hit x)
+  (setq out '() hit nil)
+  (foreach x lst
+    (if (and (null hit) (equal x v 0.000000001))
+      (setq hit t)
+      (setq out (cons x out))
+    )
+  )
+  (reverse out)
+)
+
+;; y values where the vertical line x cuts the polygon
+(defun mj:tile-xcross (x poly / out n i a b x1 y1 x2 y2)
+  (setq n (length poly) i 0 out '())
+  (while (< i n)
+    (setq a (nth i poly) b (nth (rem (1+ i) n) poly))
+    (setq x1 (car a) y1 (cadr a) x2 (car b) y2 (cadr b))
+    (if (or (and (<= x1 x) (< x x2)) (and (<= x2 x) (< x x1)))
+      (setq out (cons (+ y1 (/ (* (- y2 y1) (- x x1)) (- x2 x1))) out))
+    )
+    (setq i (1+ i))
+  )
+  (mj:tile-sort out)
+)
+
+;; x values where the horizontal line y cuts the polygon
+(defun mj:tile-ycross (y poly / out n i a b x1 y1 x2 y2)
+  (setq n (length poly) i 0 out '())
+  (while (< i n)
+    (setq a (nth i poly) b (nth (rem (1+ i) n) poly))
+    (setq x1 (car a) y1 (cadr a) x2 (car b) y2 (cadr b))
+    (if (or (and (<= y1 y) (< y y2)) (and (<= y2 y) (< y y1)))
+      (setq out (cons (+ x1 (/ (* (- x2 x1) (- y y1)) (- y2 y1))) out))
+    )
+    (setq i (1+ i))
+  )
+  (mj:tile-sort out)
+)
+
+;; sorted crossings -> list of inside intervals
+(defun mj:tile-pairs (vals / out rest)
+  (setq out '() rest vals)
+  (while (>= (length rest) 2)
+    (setq out (cons (list (car rest) (cadr rest)) out))
+    (setq rest (cddr rest))
+  )
+  (reverse out)
+)
+
+(defun mj:tile-line (p1 p2 / lay col lw)
+  (setq lay (mj:get 'tilelayer) col (mj:get 'tilecolor) lw (mj:get 'tilelw))
+  (entmake (list '(0 . "LINE") '(100 . "AcDbEntity")
+                 (cons 8 lay) (cons 62 (mj:layer-color col)) (cons 370 lw)
+                 '(100 . "AcDbLine")
+                 (cons 10 (list (car p1) (cadr p1) 0.0))
+                 (cons 11 (list (car p2) (cadr p2) 0.0))))
+)
+
+(defun mj:tile-sync-layer ( / nm d)
+  (setq nm (mj:get 'tilelayer))
+  (mj:ensure-layer nm (mj:get 'tilecolor) (mj:get 'tilelw))
+  ;; tblobjname is the only way to refresh an existing layer record;
+  ;; skip quietly if a build does not expose it
+  (setq d (if tblobjname (tblobjname "LAYER" nm) nil))
+  (if d
+    (progn
+      (setq d (entget d))
+      (setq d (mj:putd d 62 (mj:layer-color (mj:get 'tilecolor))))
+      (setq d (mj:putd d 370 (mj:get 'tilelw)))
+      (entmod d)
+    )
+  )
+)
+
+(defun mj:tile-header ()
+  (prompt "\n========== 瓷砖铺贴 ==========")
+  (prompt (strcat "\n砖规格: " (mj:tile-num (mj:get 'tilel)) " x " (mj:tile-num (mj:get 'tilew))
+                  "   美缝: " (mj:tile-num (mj:get 'tilegap))
+                  "   网格间距: " (mj:tile-num (+ (mj:get 'tilel) (mj:get 'tilegap)))
+                  " x " (mj:tile-num (+ (mj:get 'tilew) (mj:get 'tilegap)))))
+  (prompt (strcat "\n起点偏移: " (mj:tile-num (mj:get 'tileox))
+                  "," (mj:tile-num (mj:get 'tileoy))
+                  "   角度: " (mj:tile-num (mj:get 'tileang)) "度"
+                  "   图层: " (mj:get 'tilelayer)))
+)
+
+;; draw the double line grid inside one polygon, returns the line count
+(defun mj:tile-draw (poly / ang c s box ax ay gp gb L W g P Q ox oy
+                       umin umax vmin vmax m0 m1 n0 n1 m n u0 v0 d x lo hi
+                       ints iv cnt run p1 p2)
+  (setq L (mj:get 'tilel) W (mj:get 'tilew) g (mj:get 'tilegap))
+  (cond
+    ((or (null poly) (< (length poly) 3))
+      (prompt "\n警告: 区域顶点太少，无法铺贴。") 0)
+    ((or (<= L 0.0) (<= W 0.0))
+      (prompt "\n警告: 砖长/砖宽必须大于 0，请用 MJTSET 设置。") 0)
+    (t
+      (if (< g 0.0) (setq g 0.0))
+      (setq box (mj:tile-bbox poly) ax (car box) ay (cadr box))
+      (setq ang (* pi (/ (mj:get 'tileang) 180.0)) c (cos ang) s (sin ang))
+      (setq gp '())
+      (foreach p poly (setq gp (cons (mj:tile-w2g p ax ay c s) gp)))
+      (setq gp (reverse gp))
+      (setq gb (mj:tile-bbox gp))
+      (setq umin (car gb) vmin (cadr gb) umax (caddr gb) vmax (cadddr gb))
+      (setq P (+ L g) Q (+ W g))
+      (setq ox (mj:get 'tileox) oy (mj:get 'tileoy))
+      (setq m0 (1- (mj:tile-floor (/ (- umin g L ox) P))))
+      (setq m1 (1+ (mj:tile-ceil (/ (- umax L ox) P))))
+      (setq n0 (1- (mj:tile-floor (/ (- vmin g W oy) Q))))
+      (setq n1 (1+ (mj:tile-ceil (/ (- vmax W oy) Q))))
+      (setq run (* 2 (+ (- m1 m0) (- n1 n0) 2)))
+      (if (> run 30000)
+        (progn
+          (prompt (strcat "\n警告: 网格过密（约 " (itoa run) " 条线），请加大砖规格或缩小区域。"))
+          0
+        )
+        (progn
+          (setq cnt 0)
+          ;; ---- vertical joints (u = const), two lines per joint ----
+          (setq m m0)
+          (while (<= m m1)
+            (setq u0 (+ ox (* m P) L))
+            (foreach d (list 0.0 g)
+              (if (or (= d 0.0) (> g 0.0))
+                (progn
+                  (setq x (+ u0 d))
+                  (setq ints (mj:tile-pairs (mj:tile-xcross x gp)))
+                  (foreach iv ints
+                    (setq p1 (mj:tile-g2w x (car iv) ax ay c s))
+                    (setq p2 (mj:tile-g2w x (cadr iv) ax ay c s))
+                    (if (mj:tile-line p1 p2) (setq cnt (1+ cnt)))
+                  )
+                )
+              )
+            )
+            (setq m (1+ m))
+          )
+          ;; ---- horizontal joints (v = const) ----
+          (setq n n0)
+          (while (<= n n1)
+            (setq v0 (+ oy (* n Q) W))
+            (foreach d (list 0.0 g)
+              (if (or (= d 0.0) (> g 0.0))
+                (progn
+                  (setq x (+ v0 d))
+                  (setq ints (mj:tile-pairs (mj:tile-ycross x gp)))
+                  (foreach iv ints
+                    (setq p1 (mj:tile-g2w (car iv) x ax ay c s))
+                    (setq p2 (mj:tile-g2w (cadr iv) x ax ay c s))
+                    (if (mj:tile-line p1 p2) (setq cnt (1+ cnt)))
+                  )
+                )
+              )
+            )
+            (setq n (1+ n))
+          )
+          cnt
+        )
+      )
+    )
+  )
+)
+
+;; tile one entity that is already a closed outline
+(defun mj:tile-entity (e / poly n)
+  (setq poly (mj:tile-poly e))
+  (if poly
+    (mj:tile-draw poly)
+    (progn (prompt "\n警告: 无法取得该对象的轮廓，已跳过。") 0)
+  )
+)
+
+;; tile a region picked by an interior point (temporary BOUNDARY is removed)
+(defun mj:tile-from-point (pt / e poly n)
+  (setq e (mj:boundary-from-point pt))
+  (if e
+    (progn
+      (setq poly (mj:tile-poly e))
+      (mj:erase-ent e)
+      (if poly
+        (mj:tile-draw poly)
+        (progn (prompt "\n警告: 无法提取该区域边界。") 0)
+      )
+    )
+    (progn
+      (prompt "\n没能生成边界 (BO 失败)：请确认该点在封闭区域内，且边界没有缺口。")
+      0
+    )
+  )
+)
+
+(defun mj:tile-point-run (pt / total n)
+  (setq total 0)
+  (while pt
+    (setq n (mj:tile-from-point pt))
+    (setq total (+ total n))
+    (setq pt (getpoint "\n继续点取下一个铺贴区域 (回车结束): "))
+  )
+  total
+)
+
+(defun mj:tile-select ( / ss i n e ty total segs m d)
+  (prompt "\n[选择已有区域] 可多选、可框选（闭合多段线/圆/椭圆/面域/填充/直线圆弧围成的框）")
+  (setq ss (ssget (list (cons 0 "LINE,ARC,LWPOLYLINE,POLYLINE,CIRCLE,ELLIPSE,SPLINE,REGION,HATCH"))))
+  (setq total 0)
+  (if ss
+    (progn
+      (setq i 0 n (sslength ss) segs '())
+      (while (< i n)
+        (setq e (ssname ss i) ty (mj:dxf0 e) d (entget e))
+        (cond
+          ((or (= ty "LINE") (= ty "ARC"))
+            (setq segs (append segs (mj:ent-segs e))))
+          ((or (= ty "LWPOLYLINE") (= ty "POLYLINE"))
+            (if (= 1 (logand 1 (fix (cond ((cdr (assoc 70 d))) (t 0)))))
+              (setq total (+ total (mj:tile-entity e)))
+              (setq segs (append segs
+                            (mj:verts->segs (if (= ty "LWPOLYLINE")
+                                              (mj:lw-verts e) (mj:pl-verts e)) nil)))
+            ))
+          (t (setq total (+ total (mj:tile-entity e))))
+        )
+        (setq i (1+ i))
+      )
+      (if segs
+        (progn
+          (prompt (strcat "\n正在由 " (itoa (length segs)) " 段线/弧拼合区域..."))
+          (setq m (mj:loop-metrics segs))
+          (if m
+            (setq total (+ total (mj:tile-draw (mj:tile-flat (cdr (assoc 'verts m)) t))))
+            (prompt "\n警告: 选中的线/圆弧没有拼成闭合的框（有缺口），已跳过。")
+          )
+        )
+      )
+    )
+  )
+  total
+)
+
+;; tile settings menu
+(defun mj:tile-set ( / k loop)
+  (setq loop t)
+  (while loop
+    (mj:tile-header)
+    (prompt "\n[1] 砖长   [2] 砖宽   [3] 美缝宽度")
+    (prompt "\n[4] 起点偏移 X   [5] 起点偏移 Y   [6] 铺贴角度")
+    (prompt "\n[7] 图层名   [8] 颜色   [9] 线宽   [0] 保存并退出")
+    (initget "1 2 3 4 5 6 7 8 9 0")
+    (setq k (getkword "\n选择要修改的项目 <0>: "))
+    (cond
+      ((or (null k) (= k "0")) (setq loop nil))
+      ((= k "1")
+        (setq k (getreal (strcat "\n砖长 <" (mj:tile-num (mj:get 'tilel)) ">: ")))
+        (if (and k (> k 0.0)) (mj:set 'tilel k))
+      )
+      ((= k "2")
+        (setq k (getreal (strcat "\n砖宽 <" (mj:tile-num (mj:get 'tilew)) ">: ")))
+        (if (and k (> k 0.0)) (mj:set 'tilew k))
+      )
+      ((= k "3")
+        (setq k (getreal (strcat "\n美缝宽度 (双线之间) <" (mj:tile-num (mj:get 'tilegap)) ">: ")))
+        (if (and k (>= k 0.0)) (mj:set 'tilegap k))
+      )
+      ((= k "4")
+        (setq k (getreal (strcat "\n起点偏移 X <" (mj:tile-num (mj:get 'tileox)) ">: ")))
+        (if k (mj:set 'tileox k))
+      )
+      ((= k "5")
+        (setq k (getreal (strcat "\n起点偏移 Y <" (mj:tile-num (mj:get 'tileoy)) ">: ")))
+        (if k (mj:set 'tileoy k))
+      )
+      ((= k "6")
+        (setq k (getreal (strcat "\n铺贴角度 (度) <" (mj:tile-num (mj:get 'tileang)) ">: ")))
+        (if k (mj:set 'tileang k))
+      )
+      ((= k "7")
+        (setq k (getstring T (strcat "\n瓷砖图层名 <" (mj:get 'tilelayer) ">: ")))
+        (if (and k (/= k "")) (mj:set 'tilelayer k))
+      )
+      ((= k "8")
+        (setq k (getint (strcat "\n颜色 1红 2黄 3绿 4青 5蓝 6洋红 7白 8灰 <"
+                                (itoa (mj:get 'tilecolor)) ">: ")))
+        (if k (mj:set 'tilecolor k))
+      )
+      ((= k "9")
+        (setq k (getreal (strcat "\n线宽 mm <"
+                                 (mj:tile-num (/ (mj:get 'tilelw) 100.0)) ">: ")))
+        (if k (mj:set 'tilelw (fix (+ 0.5 (* 100.0 k)))))
+      )
+    )
+  )
+  (mj:tile-sync-layer)
+  (if (mj:ini-save)
+    (prompt "\n设置已保存（MJArea.ini）。")
+    (prompt "\n警告: 设置没能写入文件，本次会话内有效。")
+  )
+  (princ)
+)
+
+(defun c:MJTSET ()
+  (mj:init)
+  (mj:on)
+  (mj:tile-set)
+  (mj:off)
+  (princ)
+)
+
+(defun mj:cmd-tile ( / pt cnt)
+  (mj:init)
+  (mj:on)
+  (mj:tile-sync-layer)
+  (mj:tile-header)
+  (setq cnt 0)
+  (initget "S M")
+  (setq pt (getpoint "\n点取铺贴区域内部一点 或 [选择已有线框(S)/设置(M)] <选择线框>: "))
+  (cond
+    ((eq (type pt) 'STR)
+      (if (= pt "M")
+        (progn (mj:tile-set) (setq cnt -1))
+        (setq cnt (mj:tile-select))
+      )
+    )
+    (pt (setq cnt (mj:tile-point-run pt)))
+    (t (setq cnt (mj:tile-select)))
+  )
+  (cond
+    ((= cnt -1)
+      (prompt "\n设置已更新，再次输入 MJTILE 即可铺贴。"))
+    ((> cnt 0)
+      (prompt (strcat "\n瓷砖铺贴完成：共绘制 " (itoa cnt) " 段砖缝线（每道缝是双线）。"))
+      (prompt (strcat "\n砖 " (mj:tile-num (mj:get 'tilel)) " x " (mj:tile-num (mj:get 'tilew))
+                      "   美缝 " (mj:tile-num (mj:get 'tilegap))
+                      "   图层 " (mj:get 'tilelayer)))
+    )
+    (t (prompt "\n没有绘制任何线条。"))
+  )
+  (mj:off)
+  (princ)
+)
+
+(defun c:MJTILE ()
+  (mj:cmd-tile)
+)
+
+(defun c:MJT ()
+  (mj:cmd-tile)
+)
+
 ;; 4) uninstall
 (defun c:MJUNINSTALL ( / p)
   (mj:init)
@@ -2591,8 +3129,11 @@
   (prompt "\nMJPLOTQ 快速批量打印：用上次的设置，框选图框后直接出图（工具栏按钮）")
   (prompt "\nMJA     与 MJ 相同（备用名称）")
   (prompt "\n")
-  (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印")
-  (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 卸载插件")
+  (prompt "\nMJTILE  瓷砖铺贴：点区域内部一点，按设定砖规格铺双线砖缝网格")
+  (prompt "\nMJTSET  瓷砖设置：砖长 / 砖宽 / 美缝宽度 / 起点偏移 / 角度 / 图层")
+  (prompt "\n")
+  (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印 / 瓷砖铺贴")
+  (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 卸载插件")
   (prompt "\n可标注: 闭合多段线、圆、椭圆、闭合样条、面域、填充。")
   (prompt "\n设置保存在 MJArea.ini 中，下次打开图纸依然有效。")
   (princ)
@@ -2605,9 +3146,9 @@
   (progn
     (setq *mj-loaded* t)
     (prompt (strcat "\nMJArea " *mj-ver*
-                    " 已加载  (面积/周长标注 + 红线加粗)"))
+                    " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴)"))
     (prompt "\n命令: MJ (点内部点自动BO / 输 S 选线框)   备用名 MJA MJP")
-    (prompt "\n设置 MJSET   清除 MJCLR   自检 MJINFO   帮助 MJHELP")
+    (prompt "\n瓷砖 MJTILE (铺贴)   MJTSET (设置)   设置 MJSET   清除 MJCLR   帮助 MJHELP")
     (prompt (strcat "\n自检: "
                     (if (and mj:cmd-main mj:header mj:assemble)
                       "内部函数正常"

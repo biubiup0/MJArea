@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage
     SchemaVersion="1.0"
-    AppVersion="6.1"
+    AppVersion="6.2"
     Author="biubiup0"
     ProductCode="{8F1C7A62-4B3D-4F19-9E27-2D6A5C41B0E3}"
     Name="MJArea"
@@ -30,6 +30,9 @@
         <Command Global="MJTRUST" Local="MJTRUST" />
         <Command Global="MJPLOT" Local="MJPLOT" />
         <Command Global="MJPLOTQ" Local="MJPLOTQ" />
+        <Command Global="MJTILE"  Local="MJTILE" />
+        <Command Global="MJTSET"  Local="MJTSET" />
+        <Command Global="MJT"     Local="MJT" />
         <Command Global="MJUNINSTALL" Local="MJUNINSTALL" />
         <Command Global="MJHELP" Local="MJHELP" />
       </Commands>

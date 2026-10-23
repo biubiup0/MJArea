@@ -24,7 +24,7 @@ fix float foreach getenv getint getkword getpoint getreal getstring getvar
 if initget itoa last layoutlist length list logand mapcar max member min nth null not
 open or numberp pi polar princ print prin1 prompt read-line rem repeat reverse rtos setq
 setvar sin cos sqrt tan ssadd ssget sslength ssname startapp strcase strcat strlen subst
-substr tblnext tblsearch trans type ver getfiled vl-directory-files vl-file-size vl-mkdir vla-getboundingbox vla-get-area vla-get-perimeter
+substr tblnext tblobjname tblsearch trans type ver getfiled prog1 vl-directory-files vl-file-size vl-mkdir vla-getboundingbox vla-get-area vla-get-perimeter
 vl-catch-all-apply vl-catch-all-error-p vl-load-com vlax-add-cmd
 vlax-ename->vla-object vlax-safearray->list vlax-variant-value wcmatch write-line
 """.split())
