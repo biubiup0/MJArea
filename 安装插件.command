@@ -166,7 +166,7 @@ if [ -n "$CUI" ] && [ -d "$CUI" ] && command -v python3 >/dev/null 2>&1; then
     SKIP_CUI=0
   fi
   if [ "${SKIP_CUI:-0}" = "0" ]; then
-    echo "[4.5/5] 安装“我的工具”：工具栏 = 面积周长 / 批量打印，菜单栏 = 面积周长 / 批量打印 / 卸载插件"
+    echo "[4.5/5] 安装“我的工具”：工具栏 = 面积周长 / 批量打印 / 瓷砖铺贴，菜单栏再加“卸载插件”"
     python3 "$HERE/create_toolbar.py" "$CUI"
   fi
   cp "$HERE/卸载插件.command" "$ADDINS/卸载插件.command"
@@ -185,7 +185,7 @@ echo
 echo "接下来："
 echo "  1) 完全退出 AutoCAD（Cmd+Q），再重新打开；"
 echo "  2) 命令行输入  MJ   回车 → 框选房间/区域，即出面积周长 + 红色加粗轮廓；"
-echo "  3) MJTILE 瓷砖铺贴 / MJTSET 瓷砖设置（砖长宽、美缝、起点偏移、角度）；"
+echo "  3) PT 瓷砖铺贴（点封闭空间 → 填砖长/宽/美缝 → 回车生成）/ MJTSET 高级设置；"
 echo "  4) MJINFO 自检 / MJHELP 帮助 / MJSET 改设置 / MJCLR 清除标注。"
 echo
 echo "LI 仍然是原来的 LIST（列表查看）命令，不受影响。"
