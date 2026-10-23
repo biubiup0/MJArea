@@ -92,6 +92,8 @@ if [ -n "$SUPPORT" ] && [ -f "$PGP" ]; then
   # 加上 MJ 快捷键
   if grep -q "^\s*MJ\s*,\s*\*MJA" "$PGP" 2>/dev/null; then
     echo "[3/5] MJ 快捷键已经存在，跳过"
+  elif grep -q "^\s*MJ\s*," "$PGP" 2>/dev/null; then
+    echo "[3/5] 注意：acadUser.pgp 里 MJ 已经被别的命令占用，未覆盖（可直接输入 MJA）。"
   else
     cp "$PGP" "$PGP.mjarea.bak"
     {
@@ -103,6 +105,20 @@ if [ -n "$SUPPORT" ] && [ -f "$PGP" ]; then
     echo "      $PGP"
     echo "      备份：$PGP.mjarea.bak"
     echo "      提示：别名在启动时读取，改完请重启 AutoCAD，或在 CAD 里执行 REINIT 选 PGP。"
+  fi
+  # 加上 PT 快捷键（瓷砖设置）
+  if grep -q "^\s*PT\s*,\s*\*MJTSET" "$PGP" 2>/dev/null; then
+    echo "[3/5] PT 瓷砖设置快捷键已经存在，跳过"
+  elif grep -q "^\s*PT\s*," "$PGP" 2>/dev/null; then
+    echo "[3/5] 注意：acadUser.pgp 里 PT 已经被别的命令占用，未覆盖（瓷砖设置可直接输入 MJTSET）。"
+  else
+    cp "$PGP" "$PGP.mjarea.bak"
+    {
+      echo ""
+      echo "; MJArea 瓷砖铺贴：PT = 瓷砖设置快捷键"
+      echo "PT,        *MJTSET"
+    } >> "$PGP"
+    echo "[3/5] 已添加 PT 快捷键（瓷砖设置，指向 MJTSET）"
   fi
 else
   echo "[3/5] 没有找到 acadUser.pgp，跳过快捷键（可直接输入 MJA）。"

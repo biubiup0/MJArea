@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.2")
+(setq *mj-ver* "6.3")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2575,7 +2575,8 @@
   (prompt (strcat "\n起点偏移: " (mj:tile-num (mj:get 'tileox))
                   "," (mj:tile-num (mj:get 'tileoy))
                   "   角度: " (mj:tile-num (mj:get 'tileang)) "度"
-                  "   图层: " (mj:get 'tilelayer)))
+                  "   图层: " (mj:get 'tilelayer)
+                  "   修改设置: PT"))
 )
 
 ;; draw the double line grid inside one polygon, returns the line count
@@ -2792,12 +2793,23 @@
   (princ)
 )
 
-(defun c:MJTSET ()
+(defun mj:cmd-tile-set ()
   (mj:init)
   (mj:on)
   (mj:tile-set)
   (mj:off)
   (princ)
+)
+
+(defun c:MJTSET ()
+  (mj:cmd-tile-set)
+)
+
+;; PT = short name for the tile settings (the installer also adds
+;; "PT, *MJTSET" to acadUser.pgp, because some Mac builds refuse to
+;; register a two letter Lisp command)
+(defun c:PT ()
+  (mj:cmd-tile-set)
 )
 
 (defun mj:cmd-tile ( / pt cnt)
@@ -3130,7 +3142,7 @@
   (prompt "\nMJA     与 MJ 相同（备用名称）")
   (prompt "\n")
   (prompt "\nMJTILE  瓷砖铺贴：点区域内部一点，按设定砖规格铺双线砖缝网格")
-  (prompt "\nMJTSET  瓷砖设置：砖长 / 砖宽 / 美缝宽度 / 起点偏移 / 角度 / 图层")
+  (prompt "\nMJTSET  瓷砖设置（快捷键 PT）：砖长 / 砖宽 / 美缝宽度 / 起点偏移 / 角度")
   (prompt "\n")
   (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印 / 瓷砖铺贴")
   (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 卸载插件")
@@ -3148,7 +3160,7 @@
     (prompt (strcat "\nMJArea " *mj-ver*
                     " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴)"))
     (prompt "\n命令: MJ (点内部点自动BO / 输 S 选线框)   备用名 MJA MJP")
-    (prompt "\n瓷砖 MJTILE (铺贴)   MJTSET (设置)   设置 MJSET   清除 MJCLR   帮助 MJHELP")
+    (prompt "\n瓷砖 MJTILE (铺贴)   PT/MJTSET (瓷砖设置)   设置 MJSET   清除 MJCLR   帮助 MJHELP")
     (prompt (strcat "\n自检: "
                     (if (and mj:cmd-main mj:header mj:assemble)
                       "内部函数正常"
