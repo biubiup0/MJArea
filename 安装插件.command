@@ -185,7 +185,8 @@ echo
 echo "接下来："
 echo "  1) 完全退出 AutoCAD（Cmd+Q），再重新打开；"
 echo "  2) 命令行输入  MJ   回车 → 框选房间/区域，即出面积周长 + 红色加粗轮廓；"
-echo "  3) PT 瓷砖铺贴（点封闭空间 → 填砖长/宽/美缝 → 回车生成）/ MJTSET 高级设置；"
+echo "  3) PT 瓷砖铺贴（点封闭空间 → 填砖长/宽/美缝 → 点起点即生成）；"
+echo "     M / MJTSET 可修改已铺贴的图（改尺寸重画）或改默认参数；"
 echo "  4) MJINFO 自检 / MJHELP 帮助 / MJSET 改设置 / MJCLR 清除标注。"
 echo
 echo "LI 仍然是原来的 LIST（列表查看）命令，不受影响。"
