@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.7")
+(setq *mj-ver* "6.8")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2581,125 +2581,6 @@
   )
 )
 
-;; ------------------------------------------------------------
-;; remember what was drawn, so a finished tile layout can be opened
-;; again and re-laid with other sizes (M -> 1)
-;; ------------------------------------------------------------
-
-(defun mj:regapp ( / )
-  (if (not (tblsearch "APPID" "MJAREA"))
-    (entmake (list '(0 . "APPID") '(100 . "AcDbSymbolTableRecord")
-                   '(100 . "AcDbRegAppTableRecord") '(2 . "MJAREA") '(70 . 0)))
-  )
-)
-
-;; xdata: app name, marker, L W gap angle, start point, then the
-;; room outline (one 1010 point each)
-(defun mj:tile-xdata-make (L W gap ang org poly / out p)
-  (setq out (list (cons 1001 "MJAREA") (cons 1000 "TILE1")
-                  (cons 1040 L) (cons 1040 W) (cons 1040 gap) (cons 1040 ang)
-                  (cons 1010 (list (car org) (cadr org) 0.0))))
-  (foreach p poly
-    (setq out (append out (list (cons 1010 (list (car p) (cadr p) 0.0)))))
-  )
-  out
-)
-
-(defun mj:tile-xdata-parse (xd / l w gap ang org poly v pt)
-  (foreach v xd
-    (cond
-      ((= (car v) 1040)
-        (cond
-          ((null l) (setq l (cdr v)))
-          ((null w) (setq w (cdr v)))
-          ((null gap) (setq gap (cdr v)))
-          ((null ang) (setq ang (cdr v)))
-        )
-      )
-      ((= (car v) 1010)
-        (setq pt (cdr v))
-        (if (null org)
-          (setq org pt)
-          (setq poly (append poly (list (list (car pt) (cadr pt)))))
-        )
-      )
-    )
-  )
-  (if (and l w gap ang org (> (length poly) 2))
-    (list (cons 'l l) (cons 'w w) (cons 'gap gap) (cons 'ang ang)
-          (cons 'org org) (cons 'poly poly))
-    nil
-  )
-)
-
-(defun mj:tile-xdata-save (g poly org / xd)
-  (mj:regapp)
-  (setq xd (mj:tile-xdata-make (mj:get 'tilel) (mj:get 'tilew) (mj:get 'tilegap)
-                               (mj:get 'tileang) org poly))
-  ;; xdata is limited to 16 KB per object; a normal room outline is far
-  ;; below that, but guard against pathological polylines
-  (if (> (length poly) 500)
-    (prompt "\n提示: 该区域边界太复杂，未保存参数（之后不能用 M 二次修改）。")
-    (entmod (append (entget g) (list (cons -3 (list xd)))))
-  )
-)
-
-(defun mj:tile-xdata-read (g / xd hit out)
-  (setq xd (cdr (assoc -3 (entget g (list "MJAREA")))))
-  (foreach hit xd
-    (if (equal (cdr (assoc 1001 hit)) "MJAREA")
-      (setq out (mj:tile-xdata-parse hit))
-    )
-  )
-  out
-)
-
-(defun mj:tile-group-members (g / out x)
-  (foreach x (entget g)
-    (if (= 340 (car x)) (setq out (cons (cdr x) out)))
-  )
-  (reverse out)
-)
-
-;; group that contains entity e (nil if it is not grouped)
-(defun mj:tile-group-of (e / gd dict item grp found x)
-  (setq gd (dictsearch (namedobjdict) "ACAD_GROUP"))
-  (if gd
-    (progn
-      (setq dict (cdr (assoc -1 gd)) item (dictnext dict))
-      (while (and item (null found))
-        (setq grp (cdr (assoc -1 item)))
-        (if grp
-          (foreach x (entget grp)
-            (if (and (= 340 (car x)) (eq (cdr x) e)) (setq found grp))
-          )
-        )
-        (setq item (dictnext dict item))
-      )
-    )
-  )
-  found
-)
-
-(defun mj:tile-group-delete (g / gd dict item name e)
-  (setq gd (dictsearch (namedobjdict) "ACAD_GROUP"))
-  (if gd
-    (progn
-      (setq dict (cdr (assoc -1 gd)) item (dictnext dict))
-      (while item
-        (if (eq (cdr (assoc -1 item)) g) (setq name (cdr (assoc 3 item))))
-        (setq item (dictnext dict item))
-      )
-      (if name (dictremove dict name))
-    )
-  )
-  (foreach e (mj:tile-group-members g)
-    (if (entget e) (entdel e))
-  )
-  (if (entget g) (entdel g))
-  t
-)
-
 (defun mj:tile-sync-layer ( / nm d)
   (setq nm (mj:get 'tilelayer))
   (mj:ensure-layer nm (mj:get 'tilecolor) (mj:get 'tilelw))
@@ -2732,7 +2613,7 @@
 ;; draw the double line grid inside one polygon, returns the line count
 (defun mj:tile-draw (poly org / ang c s box ax ay gp gb L W g P Q ox oy
                        umin umax vmin vmax m0 m1 n0 n1 m n u0 v0 d x lo hi
-                       ints iv cnt run p1 p2 old grp org2 eff)
+                       ints iv cnt run p1 p2 old grp org2)
   (setq L (mj:get 'tilel) W (mj:get 'tilew) g (mj:get 'tilegap))
   (cond
     ((or (null poly) (< (length poly) 3))
@@ -2758,7 +2639,6 @@
         )
         (setq ox (mj:get 'tileox) oy (mj:get 'tileoy))
       )
-      (setq eff (mj:tile-g2w ox oy ax ay c s))
       (setq m0 (1- (mj:tile-floor (/ (- umin g L ox) P))))
       (setq m1 (1+ (mj:tile-ceil (/ (- umax L ox) P))))
       (setq n0 (1- (mj:tile-floor (/ (- vmin g W oy) Q))))
@@ -2814,10 +2694,7 @@
             (progn
               (setq grp (mj:group-new (mj:new-ents old) "MJ-瓷砖"))
               (if grp
-                (progn
-                  (mj:tile-xdata-save grp poly eff)
-                  (prompt (strcat "\n已把本次铺贴的 " (itoa cnt) " 条线编成一组: " grp))
-                )
+                (prompt (strcat "\n已把本次铺贴的 " (itoa cnt) " 条线编成一组: " grp))
                 (prompt "\n提示: 线条已画好，但自动编组失败（可手动 GROUP）。")
               )
             )
@@ -2897,7 +2774,7 @@
 
 ;; tile settings menu
 ;; the classic 9-item parameter list
-(defun mj:tile-params ( / k loop)
+(defun mj:tile-set ( / k loop)
   (setq loop t)
   (while loop
     (mj:tile-header)
@@ -2952,72 +2829,6 @@
   (if (mj:ini-save)
     (prompt "\n设置已保存（MJArea.ini）。")
     (prompt "\n警告: 设置没能写入文件，本次会话内有效。")
-  )
-  (princ)
-)
-
-;; re-lay a finished tile layout: pick one of its lines, the stored room
-;; outline is reused, the sizes are asked again and the old lines are
-;; replaced by the new ones
-(defun mj:tile-edit ( / ss e g dat k org cnt)
-  (prompt "\n选择要修改的瓷砖图：点任意一条已铺贴的砖缝线")
-  (setq ss (ssget ":S" '((0 . "LINE"))))
-  (if (null ss)
-    (prompt "\n没有选中线条，已取消。")
-    (progn
-      (setq e (ssname ss 0))
-      (setq g (mj:tile-group-of e))
-      (setq dat (if g (mj:tile-xdata-read g) nil))
-      (if (null dat)
-        (progn
-          (prompt "\n这条线不是本插件铺的，或者是旧版本铺的（没有保存原区域）。")
-          (prompt "\n请用 PT 重新铺贴，之后就能用 M 二次修改了。")
-        )
-        (progn
-          (prompt (strcat "\n原参数: " (mj:tile-num (cdr (assoc 'l dat))) " x "
-                          (mj:tile-num (cdr (assoc 'w dat))) "   美缝 "
-                          (mj:tile-num (cdr (assoc 'gap dat))) "   角度 "
-                          (mj:tile-num (cdr (assoc 'ang dat))) "度"))
-          (prompt "\n---- 输入新尺寸（直接回车 = 保持原值）----")
-          (setq k (getreal (strcat "\n瓷砖长 <" (mj:tile-num (cdr (assoc 'l dat))) ">: ")))
-          (if (and k (> k 0.0)) (mj:set 'tilel k) (mj:set 'tilel (cdr (assoc 'l dat))))
-          (setq k (getreal (strcat "\n瓷砖宽 <" (mj:tile-num (cdr (assoc 'w dat))) ">: ")))
-          (if (and k (> k 0.0)) (mj:set 'tilew k) (mj:set 'tilew (cdr (assoc 'w dat))))
-          (setq k (getreal (strcat "\n美缝尺寸 <" (mj:tile-num (cdr (assoc 'gap dat))) ">: ")))
-          (if (and k (>= k 0.0)) (mj:set 'tilegap k) (mj:set 'tilegap (cdr (assoc 'gap dat))))
-          (setq k (getreal (strcat "\n铺贴角度 <" (mj:tile-num (cdr (assoc 'ang dat))) ">: ")))
-          (if k (mj:set 'tileang k) (mj:set 'tileang (cdr (assoc 'ang dat))))
-          (setq org (getpoint "\n指定新的铺贴起点（点瓷砖角要落在的位置）<回车 = 原起点>: "))
-          (if (null org) (setq org (cdr (assoc 'org dat))))
-          (mj:ini-save)
-          (mj:tile-group-delete g)
-          (setq cnt (mj:tile-draw (cdr (assoc 'poly dat)) org))
-          (if (> cnt 0)
-            (prompt (strcat "\n已按新尺寸重新铺贴：共 " (itoa cnt) " 条砖缝线，已自动打组。"))
-            (prompt "\n重新铺贴失败，请检查尺寸。")
-          )
-        )
-      )
-    )
-  )
-  (princ)
-)
-
-;; M / MJTSET menu
-(defun mj:tile-set ( / k loop)
-  (setq loop t)
-  (while loop
-    (mj:tile-header)
-    (prompt "\n[1] 修改已铺贴的瓷砖（选一条已铺的线 → 改尺寸 → 重画）")
-    (prompt "\n[2] 修改默认参数（砖长/宽、美缝、角度、图层、颜色、线宽）")
-    (prompt "\n[0] 退出")
-    (initget "1 2 0")
-    (setq k (getkword "\n选择 <0>: "))
-    (cond
-      ((or (null k) (= k "0")) (setq loop nil))
-      ((= k "1") (mj:tile-edit))
-      ((= k "2") (mj:tile-params))
-    )
   )
   (princ)
 )
@@ -3394,8 +3205,8 @@
   (prompt "\nMJPLOTQ 快速批量打印：用上次的设置，框选图框后直接出图（工具栏按钮）")
   (prompt "\nMJA     与 MJ 相同（备用名称）")
   (prompt "\n")
-  (prompt "\nPT      瓷砖铺贴：点封闭空间内部一点 -> 输入砖长/砖宽/美缝 -> 回车生成")
-  (prompt "\nMJTSET  瓷砖高级设置：起点偏移 / 角度 / 图层 / 颜色 / 线宽")
+  (prompt "\nPT      瓷砖铺贴：点封闭空间 -> 砖长/砖宽/美缝 -> 点起点 -> 生成")
+  (prompt "\nMJTSET  瓷砖参数设置（PT 里输 M 也可以）：砖长/宽、美缝、偏移、角度、图层")
   (prompt "\n")
   (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印 / 瓷砖铺贴")
   (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 卸载插件")
@@ -3413,7 +3224,7 @@
     (prompt (strcat "\nMJArea " *mj-ver*
                     " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴)"))
     (prompt "\n命令: MJ (点内部点自动BO / 输 S 选线框)   备用名 MJA MJP")
-    (prompt "\n瓷砖 PT (铺贴: 点空间->填尺寸->回车)   MJTSET (高级设置)   设置 MJSET   帮助 MJHELP")
+    (prompt "\n瓷砖 PT (铺贴)   MJTSET/M (参数设置)   设置 MJSET   帮助 MJHELP")
     (prompt (strcat "\n自检: "
                     (if (and mj:cmd-main mj:header mj:assemble)
                       "内部函数正常"

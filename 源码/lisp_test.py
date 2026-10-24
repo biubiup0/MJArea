@@ -1118,18 +1118,6 @@ def main():
     check("tile origin: next joint is one tile + grout away",
           1200.0 in xs3 and 800.0 in ys3, "x=%r y=%r" % (xs3, ys3))
 
-    # 29) xdata round trip (room outline + sizes kept for M -> 1 edits)
-    q = ("(mj:tile-xdata-parse (mj:tile-xdata-make 750.0 1500.0 2.0 45.0"
-         " (list 10.0 20.0 0.0)"
-         " (list (list 0.0 0.0) (list 10.0 0.0) (list 10.0 10.0))))")
-    check("xdata: tile length", ev("(cdr (assoc 'l %s))" % q) == 750.0)
-    check("xdata: tile width", ev("(cdr (assoc 'w %s))" % q) == 1500.0)
-    check("xdata: grout", ev("(cdr (assoc 'gap %s))" % q) == 2.0)
-    check("xdata: angle", ev("(cdr (assoc 'ang %s))" % q) == 45.0)
-    check("xdata: origin x", ev("(car (cdr (assoc 'org %s)))" % q) == 10.0)
-    check("xdata: polygon kept", ev("(length (cdr (assoc 'poly %s)))" % q) == 3)
-    check("xdata: junk rejected", ev("(mj:tile-xdata-parse (list (cons 1001 \"MJAREA\")))") is None)
-
     print()
     if failures:
         print("FAILED: %d test(s): %s" % (len(failures), ", ".join(failures)))
