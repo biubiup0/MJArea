@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.6")
+(setq *mj-ver* "6.7")
 
 ;; ------------------------------------------------------------
 ;; globals

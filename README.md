@@ -1,6 +1,6 @@
 # MJArea —— AutoCAD for Mac 面积 / 周长标注插件
 
-**下载安装包** → [MJArea-v6.6-macOS.zip](https://github.com/biubiup0/MJArea/releases/latest/download/MJArea-v6.6-macOS.zip)
+**下载安装包** → [MJArea-v6.7-macOS.zip](https://github.com/biubiup0/MJArea/releases/latest/download/MJArea-v6.7-macOS.zip)
 （解压后双击 `安装插件.command`，需要先完全退出 AutoCAD）
 
 在封闭区域里点一下 → 自动生成区域边界 → 在区域中心写出**面积 + 周长**文字，

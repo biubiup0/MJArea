@@ -35,7 +35,7 @@ ACTIONS = [
      "点取区域内部一点自动生成边界，输出面积、周长并画红色加粗轮廓"),
     ("MJ_ID_PLOT", "批量打印", "^C^C_MJPLOTQ", "RCDATA_16_PRINT",
      "批量打印：框选图框后直接按上次的设置出图"),
-    ("MJ_ID_TILE", "瓷砖铺贴", "^C^C_MJTILE", "RCDATA_16_HATCH",
+    ("MJ_ID_TILE", "瓷砖铺贴", "^C^C_MJTILE", "RCDATA_16_BHATCH",
       "瓷砖铺贴：在封闭区域里按设定的砖规格铺出双线砖缝网格"),
     ("MJ_ID_UNINSTALL", "卸载插件", "^C^C_MJUNINSTALL", "RCDATA_16_ERASE",
      "卸载 MJArea 插件，并还原被改过的设置文件"),
