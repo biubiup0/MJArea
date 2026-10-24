@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.8")
+(setq *mj-ver* "6.9")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2169,7 +2169,7 @@
 
 ;; ---- quick batch plot: uses the settings remembered from the last run ----
 ;; toolbar button -> select frames -> done, no questions at all
-(defun c:MJPLOTQ ( / ss frames k order lay scale dev paper ctb dir rule)
+(defun mj:cmd-plotq ( / ss frames k order lay scale dev paper ctb dir rule)
   (mj:init)
   (mj:on)
   (setq k (mj:get 'plotmode) order (mj:get 'plotorder)
@@ -2316,6 +2316,16 @@
   )
   (mj:off)
   (princ)
+)
+
+;; MJPLOTQ = batch plot; DY is the short name (the installer also
+;; writes "DY, *MJPLOTQ" into acadUser.pgp)
+(defun c:MJPLOTQ ()
+  (mj:cmd-plotq)
+)
+
+(defun c:DY ()
+  (mj:cmd-plotq)
 )
 
 ;; 3) Tianzheng DWG -> T3  -  placeholder
@@ -3202,7 +3212,7 @@
   (prompt "\nMJHELP  显示本帮助")
   (prompt "\nMJTRUST 把插件目录加入“受信任位置”（消除每次启动的加载询问）")
   (prompt "\nMJPLOT  批量打印：把图纸里的布局批量导出 PDF，或直接送打印机")
-  (prompt "\nMJPLOTQ 快速批量打印：用上次的设置，框选图框后直接出图（工具栏按钮）")
+  (prompt "\nDY / MJPLOTQ 快速批量打印：框选图框后直接出图（工具栏按钮）")
   (prompt "\nMJA     与 MJ 相同（备用名称）")
   (prompt "\n")
   (prompt "\nPT      瓷砖铺贴：点封闭空间 -> 砖长/砖宽/美缝 -> 点起点 -> 生成")
@@ -3223,7 +3233,7 @@
     (setq *mj-loaded* t)
     (prompt (strcat "\nMJArea " *mj-ver*
                     " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴)"))
-    (prompt "\n命令: MJ (点内部点自动BO / 输 S 选线框)   备用名 MJA MJP")
+    (prompt "\n命令: MJ (面积周长)   DY (批量打印)   PT (瓷砖铺贴)   设置 MJSET")
     (prompt "\n瓷砖 PT (铺贴)   MJTSET/M (参数设置)   设置 MJSET   帮助 MJHELP")
     (prompt (strcat "\n自检: "
                     (if (and mj:cmd-main mj:header mj:assemble)

@@ -1,6 +1,6 @@
 # MJArea —— AutoCAD for Mac 面积 / 周长标注插件
 
-**下载安装包** → [MJArea-v6.8-macOS.zip](https://github.com/biubiup0/MJArea/releases/latest/download/MJArea-v6.8-macOS.zip)
+**下载安装包** → [MJArea-v6.9-macOS.zip](https://github.com/biubiup0/MJArea/releases/latest/download/MJArea-v6.9-macOS.zip)
 （解压后双击 `安装插件.command`，需要先完全退出 AutoCAD）
 
 在封闭区域里点一下 → 自动生成区域边界 → 在区域中心写出**面积 + 周长**文字，
@@ -67,8 +67,8 @@
 
 | 位置 | 按钮 | 命令 | 作用 |
 |---|---|---|---|
-| 工具栏 | 面积周长 | `MJA` | 点区域内部一点 → 面积 / 周长 + 红色加粗轮廓 |
-| 工具栏 | 批量打印 | `MJPLOTQ` | 用上次设置，框选图框直接出图 |
+| 工具栏 | 面积周长 | `MJ` | 点区域内部一点 → 面积 / 周长 + 红色加粗轮廓 |
+| 工具栏 | 批量打印 | `DY` | 用上次设置，框选图框直接出图 |
 | 工具栏 | 瓷砖铺贴 | `PT` | 点空间 → 填砖长/宽/美缝 → 点起点 → 生成 |
 | 菜单栏 | 卸载插件 | `MJUNINSTALL` | 卸载（有二次确认，放菜单里避免误点） |
 
@@ -224,12 +224,12 @@ bash ~/Downloads/MJArea-main/安装插件.command
 
 | 命令 | 作用 |
 |---|---|
-| `MJ` / `MJA` | 面积周长标注（主命令） |
+| `MJ`（`MJA`） | 面积周长标注（主命令） |
 | `MJP` | 同 `MJ`（点取内部点入口） |
 | `PT` / `MJTILE` / `MJT` | 瓷砖铺贴（点空间 → 填尺寸 → 回车生成，自动打组） |
 | `MJTSET` / `M` | 瓷砖参数设置（砖长/宽、美缝、偏移、角度、图层、颜色、线宽） |
 | `MJPLOT` | 批量打印设置向导 |
-| `MJPLOTQ` | 快速批量打印（用上次设置） |
+| `DY`（`MJPLOTQ`） | 快速批量打印（用上次设置） |
 | `MJSET` | 修改设置（13 项，见下） |
 | `MJCLR` | 清除本插件生成的标注文字 / 红线 |
 | `MJINFO` | 显示运行信息 + 内置自检 |

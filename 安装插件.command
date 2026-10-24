@@ -125,6 +125,20 @@ if [ -n "$SUPPORT" ] && [ -f "$PGP" ]; then
     } >> "$PGP"
     echo "[3/5] 已添加 PT 快捷键（瓷砖铺贴，指向 MJTILE）"
   fi
+  # 加上 DY 快捷键（批量打印）
+  if grep -q "^\s*DY\s*,\s*\*MJPLOTQ" "$PGP" 2>/dev/null; then
+    echo "[3/5] DY 批量打印快捷键已经存在，跳过"
+  elif grep -q "^\s*DY\s*," "$PGP" 2>/dev/null; then
+    echo "[3/5] 注意：acadUser.pgp 里 DY 已经被别的命令占用，未覆盖（批量打印可直接输入 MJPLOTQ）。"
+  else
+    cp "$PGP" "$PGP.mjarea.bak"
+    {
+      echo ""
+      echo "; MJArea 批量打印：DY = 批量打印快捷键"
+      echo "DY,        *MJPLOTQ"
+    } >> "$PGP"
+    echo "[3/5] 已添加 DY 快捷键（批量打印，指向 MJPLOTQ）"
+  fi
 else
   echo "[3/5] 没有找到 acadUser.pgp，跳过快捷键（可直接输入 MJA）。"
 fi

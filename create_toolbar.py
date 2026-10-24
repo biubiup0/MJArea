@@ -29,15 +29,17 @@ import uuid
 BLOCK_UID = "ID_MyTools"
 GROUP_LABEL = "我的工具"
 
-# UID, 名称, 宏, 图标, 说明
+# UID, 名称, 宏, 显示的命令名, 图标, 说明
+# 宏里用真正的 LISP 命令名（保证按钮一定能跑），CLICommand 才是
+# 提示里显示、用户实际输入的那个短命令。
 ACTIONS = [
-    ("MJ_ID_AREA", "面积周长", "^C^C_MJA", "RCDATA_16_AREA",
+    ("MJ_ID_AREA", "面积周长", "^C^C_MJA", "MJ", "RCDATA_16_AREA",
      "点取区域内部一点自动生成边界，输出面积、周长并画红色加粗轮廓"),
-    ("MJ_ID_PLOT", "批量打印", "^C^C_MJPLOTQ", "RCDATA_16_PRINT",
+    ("MJ_ID_PLOT", "批量打印", "^C^C_MJPLOTQ", "DY", "RCDATA_16_PRINT",
      "批量打印：框选图框后直接按上次的设置出图"),
-    ("MJ_ID_TILE", "瓷砖铺贴", "^C^C_MJTILE", "RCDATA_16_BHATCH",
-      "瓷砖铺贴：在封闭区域里按设定的砖规格铺出双线砖缝网格"),
-    ("MJ_ID_UNINSTALL", "卸载插件", "^C^C_MJUNINSTALL", "RCDATA_16_ERASE",
+    ("MJ_ID_TILE", "瓷砖铺贴", "^C^C_MJTILE", "PT", "RCDATA_16_BHATCH",
+      "瓷砖铺贴：点封闭空间 → 输砖长/宽/美缝 → 点起点，生成双线砖缝网格"),
+    ("MJ_ID_UNINSTALL", "卸载插件", "^C^C_MJUNINSTALL", "MJUNINSTALL", "RCDATA_16_ERASE",
      "卸载 MJArea 插件，并还原被改过的设置文件"),
 ]
 
@@ -49,11 +51,11 @@ def uid():
 def menu_group_xml():
     out = ['<?xml version="1.0"?>', '<Root SchemaVersion="1">',
            '    <Collection UUID="%s">' % uid()]
-    for u, name, cmd, img, help_text in ACTIONS:
+    for u, name, cmd, cli, img, help_text in ACTIONS:
         out.append(
             '        <ActionDef UID="%s" Name="%s" Command="%s" Type="Tools"'
             ' CLICommand="%s" Image="%s" Help="%s"></ActionDef>'
-            % (u, name, cmd, cmd.replace("^C^C_", ""), img, help_text))
+            % (u, name, cmd, cli, img, help_text))
     out.append('    </Collection>')
     out.append('</Root>')
     out.append('')
@@ -65,7 +67,7 @@ def toolbar_block():
     where it takes a deliberate click and cannot be hit by accident."""
     parts = ['<Collection UUID="%s" UID="%s" Label="%s">'
              % (uid(), BLOCK_UID, GROUP_LABEL)]
-    for u, name, cmd, img, help_text in ACTIONS:
+    for u, name, cmd, cli, img, help_text in ACTIONS:
         if name == "卸载插件":
             continue
         parts.append(
@@ -81,7 +83,7 @@ def menu_xml(outer_uuid):
            '    <Collection UUID="%s">' % outer_uuid,
            '        <Collection Name="%s" UID="%s_MENU" UUID="%s">'
            % (GROUP_LABEL, BLOCK_UID, uid())]
-    for u, name, cmd, img, help_text in ACTIONS:
+    for u, name, cmd, cli, img, help_text in ACTIONS:
         if name == "卸载插件":
             out.append('            <Control Type="Separator" UUID="%s"/>' % uid())
         out.append('            <Control Name="%s" UUID="%s">' % (name, uid()))
