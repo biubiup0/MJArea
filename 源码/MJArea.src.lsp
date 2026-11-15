@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.15")
+(setq *mj-ver* "6.16")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -1388,7 +1388,7 @@
 ;; stops at the first break.  -> (stop-point used-list)
 (defun mj:walk (segs used tol from / cur done s rev guard)
   (setq cur from guard 0 done t)
-  (while (and done (< guard 800))
+  (while (and done (< guard 400))
     (setq guard (1+ guard) s nil)
     (foreach x segs
       (if (and (null s) (not (memq x used)))
@@ -1562,7 +1562,49 @@
 ;; only what is on screen, only what can belong to the ring around the
 ;; point, and a few anchor lines are tried so a closed piece of
 ;; furniture inside the room cannot hide the real opening.
-(defun mj:gap-search (pt / win diag tol segs near cands res seen g n first r)
+;; segments whose distance to P is below R
+(defun mj:near-segs (segs p r / out)
+  (setq out '())
+  (foreach s segs
+    (if (< (mj:pt-seg-dist p s) r)
+      (setq out (cons s out))
+    )
+  )
+  (reverse out)
+)
+
+(defun mj:try-seeds (segs pt tol / cands res seen first g)
+  (setq cands (mj:nearest-segs segs pt 4) res nil seen nil first nil)
+  (foreach seed (mj:longest-segs segs 4)
+    (if (not (memq seed cands)) (setq cands (append cands (list seed))))
+  )
+  (foreach seed cands
+    (if (null res)
+      (progn
+        (setq g (mj:gap-scan segs tol seed))
+        (mj:dbg (strcat "  cand len=" (rtos (distance (car seed) (cadr seed)) 2 1)
+                        " d=" (rtos (mj:pt-seg-dist pt seed) 2 1)
+                        " -> " (cond ((null g) "nil")
+                                     ((eq g 'closed) "closed")
+                                     (t (strcat "open " (rtos (caddr g) 2 1))))))
+        (cond
+          ((null g) nil)
+          ((eq g 'closed) (setq seen 'closed))
+          ((mj:chain-inside pt (nth 4 g)) (setq res g))
+          ((null first) (setq first g))
+        )
+      )
+    )
+  )
+  (list res first seen)
+)
+
+;; the opening around the clicked point.
+;; the search grows out from the point instead of trusting the zoom level:
+;; a small radius first (the room the user clicked in), then wider.  that
+;; keeps it correct whether the user is zoomed into the room or looking at
+;; the whole floor plan.
+(defun mj:gap-search (pt / win diag tol segs near r out first seen t3 n)
   (setq win (mj:view-box))
   (setq diag (distance (car win) (cadr win)))
   (setq tol (/ diag 20000.0))
@@ -1576,70 +1618,33 @@
       nil
     )
     (t
-      ;; keep what can belong to the ring around the point.  a busy room
-      ;; can have hundreds of lines in view, so the radius shrinks until
-      ;; the set is small enough - the nearest lines are the ones that
-      ;; matter for the ring the user clicked in.
-      (setq r (* 0.5 diag))
-      (setq near (mj:near-segs segs pt r))
-      (while (and (> (length near) 1200) (> r (* 0.01 diag)))
-        (setq r (* 0.75 r))
+      (setq out nil first nil seen nil r (* 0.03 diag))
+      (while (and (null out) (< r (* 1.2 diag)))
         (setq near (mj:near-segs segs pt r))
+        (if (and (>= (length near) 6) (<= (length near) 600))
+          (progn
+            (setq t3 (mj:try-seeds near pt tol))
+            (if (car t3) (setq out (car t3)))
+            (if (and (null first) (cadr t3)) (setq first (cadr t3)))
+            (if (and (null seen) (caddr t3)) (setq seen 'closed))
+            (mj:dbg (strcat "search: view=" (itoa n)
+                            " r=" (rtos r 2 0)
+                            " near=" (itoa (length near))
+                            " -> " (cond ((car t3) (strcat "open " (rtos (caddr (car t3)) 2 1)))
+                                         ((cadr t3) "open-fallback")
+                                         ("none"))))
+          )
+        )
+        (setq r (* 1.8 r))
       )
-      (setq segs near)
       (cond
-        ((or (< (length segs) 2) (> (length segs) 1200))
-          (mj:dbg (strcat "search: view segs=" (itoa n)
-                          " near=" (itoa (length segs)) " -> give up"))
-          nil
-        )
-        (t
-          (setq cands (mj:nearest-segs segs pt 4) res nil seen nil first nil)
-          (foreach seed (mj:longest-segs segs 4)
-            (if (not (memq seed cands)) (setq cands (append cands (list seed))))
-          )
-          (foreach seed cands
-            (if (null res)
-              (progn
-                (setq g (mj:gap-scan segs tol seed))
-                (mj:dbg (strcat "  cand len=" (rtos (distance (car seed) (cadr seed)) 2 1)
-                                " d=" (rtos (mj:pt-seg-dist pt seed) 2 1)
-                                " -> " (cond ((null g) "nil")
-                                             ((eq g 'closed) "closed")
-                                             (t (strcat "open " (rtos (caddr g) 2 1))))))
-                (cond
-                  ((null g) nil)
-                  ((eq g 'closed) (setq seen 'closed))
-                  ((mj:chain-inside pt (nth 4 g)) (setq res g))
-                  ((null first) (setq first g))
-                )
-              )
-            )
-          )
-          ;; nothing that clearly surrounds the point: take the first open
-          ;; ring anyway (a wide door opening can fool the inside test)
-          (if (null res) (setq res first))
-          (mj:dbg (strcat "search: view segs=" (itoa n)
-                          " near=" (itoa (length segs))
-                          " cands=" (itoa (length cands))
-                          " result=" (cond ((null res) (if seen "closed-only" "none"))
-                                           (t (strcat "open " (rtos (caddr res) 2 2))))))
-          (if res res seen)
-        )
+        (out out)
+        (first first)
+        (seen seen)
+        (t (mj:dbg "search found nothing") nil)
       )
     )
   )
-)
-
-;; segments whose distance to P is below R
-(defun mj:near-segs (segs p r / out)
-  (setq out '())
-  (foreach s segs
-    (if (< (mj:pt-seg-dist p s) r)
-      (setq out (cons s out))
-    )
-  )
-  (reverse out)
 )
 
 ;; one line across the opening, on the layer of the boundary it joins
