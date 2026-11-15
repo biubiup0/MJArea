@@ -1180,6 +1180,52 @@ def main():
     check("unlock: unlocked layer untouched",
           dict((q[0], q[1]) for q in db["0"])[70] == 0, repr(db["0"]))
 
+
+    # 30) unlock: swapping in a fresh copy really clears the read only bit
+    fs = {"/t/x.dwg": False}         # path -> writable?
+    def findfile(p):
+        return p if p in fs else None
+    def openf(p, mode):
+        if mode == "a":
+            return "HANDLE" if fs.get(p) else None
+        return None
+    def copyf(a, b):
+        if a not in fs:
+            return None
+        fs[b] = True                  # a brand new file: normal permissions
+        return b
+    def movef(a, b):
+        if a not in fs:
+            return None
+        fs[b] = fs.pop(a)
+        return b
+    def delf(p):
+        fs.pop(p, None)
+        return p
+    BUILTINS["FINDFILE"] = findfile
+    BUILTINS["OPEN"] = openf
+    BUILTINS["VL-FILE-COPY"] = copyf
+    BUILTINS["VL-FILE-RENAME"] = movef
+    BUILTINS["VL-FILE-DELETE"] = delf
+
+    check("unlock: read only file reports not writable",
+          not ev('(mj:can-write "/t/x.dwg")'), "")
+    ok = ev('(mj:make-writable "/t/x.dwg")')
+    check("unlock: make-writable swaps in a writable copy", bool(ok), repr(ok))
+    check("unlock: file kept its name and is writable now",
+          "/t/x.dwg" in fs and fs["/t/x.dwg"] is True, repr(fs))
+    check("unlock: no temp or backup file left behind",
+          not [k for k in fs if "mjarea" in k], repr(fs))
+
+    fs = {"/t/y.dwg": False}
+    def copyfail(a, b):
+        return None
+    BUILTINS["VL-FILE-COPY"] = copyfail
+    ok = ev('(mj:make-writable "/t/y.dwg")')
+    check("unlock: failed copy leaves the original alone",
+          not ok and "/t/y.dwg" in fs and not [k for k in fs if "mjarea" in k],
+          repr((ok, fs)))
+
     print()
     if failures:
         print("FAILED: %d test(s): %s" % (len(failures), ", ".join(failures)))

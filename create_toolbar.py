@@ -40,7 +40,7 @@ ACTIONS = [
     ("MJ_ID_TILE", "瓷砖铺贴", "^C^C_MJTILE", "PT", "RCDATA_16_BHATCH",
       "瓷砖铺贴：点封闭空间 → 输砖长/宽/美缝 → 点起点，生成双线砖缝网格"),
     ("MJ_ID_UNLOCK", "解除只读", "^C^C_MJUNLOCK", "MJUNLOCK", "RCDATA_16_LAYER_FADING_LOCKED",
-     "只读图纸：另存一份可编辑副本并切换过去，同时解开所有锁定图层"),
+     "只读图纸：去掉文件的只读位（内容不变），并解开所有锁定图层"),
     ("MJ_ID_UNINSTALL", "卸载插件", "^C^C_MJUNINSTALL", "MJUNINSTALL", "RCDATA_16_ERASE",
      "卸载 MJArea 插件，并还原被改过的设置文件"),
 ]

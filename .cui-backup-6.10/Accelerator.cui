@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<Root SchemaVersion="1">
+  <Collection UUID="41629C60-9926-49EB-B84B-4109F3DF8D66">
+    <!-- 
+    Example Shortcut item:
+    <Control UUID="26BA6D0E-D6D3-4D4B-B94A-51B54724F660" AccKeys="SHIFT+CMD" AccelChar="J" UseVirtual="false" MacroRef="ID_QuickMeasure"/>
+    Attribute explained:
+    UUID: Must be unique for each shortcut.
+    AccKeys: Key modifiers. Available modifiers include CMD, SHIFT, ALT and CTRL.
+    AccelChar: Keycode string.
+    UseVirtual: Must be "true" for virtual keys such as F1~F20, DEL, TAB, LEFT, RIGHT, UP, DOWN
+    MacroRef: Command macro ID. 
+    -->
+  </Collection>
+</Root>

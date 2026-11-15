@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<Root SchemaVersion="1">
+    <Collection UUID="725A411F-022C-45F6-B331-F26973FA19FD">
+        
+    <Collection Name="我的工具" UID="ID_MyTools_MENU" UUID="B0287D7D-AF27-4CFB-B73E-E6B72617C889">
+            <Control Name="面积周长" UUID="87421A19-66D0-4EEC-BB07-1D4A6F67F6D6">
+                <Action ActionID="MJ_ID_AREA" UUID="8335297C-BAF5-4ACD-91CA-B625B4D1B26D"/>
+            </Control>
+            <Control Name="批量打印" UUID="B7CF06D2-15BC-4B37-B7CA-B2968B19C427">
+                <Action ActionID="MJ_ID_PLOT" UUID="0F9C9E0C-7FD0-4CB4-949C-CE767D5FC2B9"/>
+            </Control>
+            <Control Name="瓷砖铺贴" UUID="145F480E-AC55-4171-AD9C-7696EDE411F7">
+                <Action ActionID="MJ_ID_TILE" UUID="8C00CB4A-0EFE-4051-9400-7174E3A62E6E"/>
+            </Control>
+            <Control Type="Separator" UUID="EF725FC2-2FD6-4613-A6DE-F1FFE270D383"/>
+            <Control Name="卸载插件" UUID="523963A7-0D9C-487D-ACA8-998FC88ECA54">
+                <Action ActionID="MJ_ID_UNINSTALL" UUID="5FCA46B2-4895-49BA-8540-8BA4F1E8977D"/>
+            </Control>
+        </Collection></Collection>
+</Root>

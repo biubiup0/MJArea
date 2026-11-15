@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.10")
+(setq *mj-ver* "6.11")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2968,13 +2968,22 @@
 ;; unlock : make a read only drawing editable again
 ;; ------------------------------------------------------------
 ;; Users call three different things "read only":
-;;   1. the dwg file itself cannot be written (permission, or the
-;;      read only flag on a file that came from a cd / usb stick)
-;;   2. another AutoCAD window has the same file open (xxx.dwl2)
-;;   3. layers inside the drawing are locked
-;; (1) and (2) cannot be cured from inside the running drawing, so we
-;; save a writable copy next to the original and keep working in that
-;; copy - the original file is never touched.  (3) is fixed in place.
+;;   1. the dwg file has no write permission (-r--r--r--).  That is the
+;;      normal state of a file that came from a cd, a usb stick or a
+;;      chat app.
+;;   2. another AutoCAD window has the same drawing open.
+;;   3. layers inside the drawing are locked.
+;; (1) is fixed on disk: an identical copy is made next to the original,
+;; the original is renamed out of the way and the copy takes its name.
+;; The copy is a brand new file, so it gets normal permissions.  The
+;; drawing must be closed and opened again afterwards, because AutoCAD
+;; remembers "read only" from the moment the file was opened.
+;; (2) cannot be cured from inside the drawing, only by closing the
+;; other window.  (3) is cleared in place, bit by bit.
+;;
+;; note : SAVEAS was tried first and is NOT usable here - driving it from
+;; AutoLISP leaves a pending prompt on the AutoCAD for Mac command line,
+;; so the copy is done with plain file functions instead.
 
 (defun mj:no-ext (name / n)
   (setq n name)
@@ -3058,6 +3067,69 @@
   (if (and h (/= h "")) (strcat h "/") nil)
 )
 
+;; ---- small file helpers that never raise a LISP error ----------------
+
+(defun mj:file-del (path)
+  (if *mj-catch*
+    (vl-catch-all-apply 'vl-file-delete (list path))
+    (vl-file-delete path)
+  )
+  (if (findfile path) nil T)
+)
+
+(defun mj:file-move (from to)
+  (if *mj-catch*
+    (vl-catch-all-apply 'vl-file-rename (list from to))
+    (vl-file-rename from to)
+  )
+  (if (and (findfile to) (not (findfile from))) T nil)
+)
+
+(defun mj:file-copy (from to)
+  (if *mj-catch*
+    (vl-catch-all-apply 'vl-file-copy (list from to))
+    (vl-file-copy from to)
+  )
+  (if (findfile to) T nil)
+)
+
+;; give a file normal write permissions by swapping in a fresh copy of
+;; itself (the copy is a new file, so the read only bit is gone).
+;; the original is parked as <name>.mjarea-bak until the swap worked,
+;; and put back if anything goes wrong.
+(defun mj:make-writable (path / bak tmp ok)
+  (setq ok nil)
+  (if (mj:can-write path)
+    (setq ok T)
+    (progn
+      (setq bak (strcat path ".mjarea-bak"))
+      (setq tmp (strcat path ".mjarea-tmp"))
+      (if (findfile bak) (mj:file-del bak))
+      (if (findfile tmp) (mj:file-del tmp))
+      (if (mj:file-copy path tmp)
+        (progn
+          (if (mj:file-move path bak)
+            (progn
+              (if (mj:file-move tmp path)
+                (setq ok (mj:can-write path))
+              )
+              (if ok
+                (mj:file-del bak)
+                (progn
+                  (if (findfile tmp) (mj:file-del tmp))
+                  (mj:file-move bak path)
+                )
+              )
+            )
+          )
+        )
+      )
+      (if (findfile tmp) (mj:file-del tmp))
+    )
+  )
+  ok
+)
+
 ;; first name of the form  <base>.dwg / <base>-1.dwg / ... that is free
 (defun mj:free-copy (dir base / p i)
   (setq p (strcat dir base ".dwg") i 0)
@@ -3068,7 +3140,7 @@
   p
 )
 
-;; writable folder for the copy: next to the drawing, else the Desktop
+;; writable folder for a copy: next to the drawing, else the Desktop
 (defun mj:copy-target (dir base / cands c out h)
   (setq out nil)
   (setq h (mj:home-dir))
@@ -3080,6 +3152,8 @@
   )
   out
 )
+
+;; ---- layers ----------------------------------------------------------
 
 (defun mj:locked-layers ( / e out)
   (setq out '())
@@ -3120,25 +3194,10 @@
   (list ok bad)
 )
 
-;; SAVEAS is the only way to make the open document point at a writable
-;; file.  It asks for the file format first, then for the file name.
-(defun mj:save-copy (target / oldf res ok)
-  (setq oldf (getvar "FILEDIA"))
-  (setvar "FILEDIA" 0)
-  (setq res (if *mj-catch*
-              (vl-catch-all-apply 'command (list "_.SAVEAS" "2018" target))
-              (progn (command "_.SAVEAS" "2018" target) T)))
-  (setvar "FILEDIA" oldf)
-  (setq ok nil)
-  (if (not (and *mj-catch* (vl-catch-all-error-p res)))
-    (if (equal (strcase target) (strcase (mj:dwg-path)))
-      (setq ok T)
-    )
-  )
-  ok
-)
+;; ---- the command -----------------------------------------------------
 
-(defun c:MJUNLOCK ( / path dir name base untitled writable locked res target ans)
+(defun c:MJUNLOCK ( / path dir name base untitled writable dirw locked res
+                     target ans)
   (mj:init)
   (mj:on)
   (prompt "\n[我的工具] 解除只读")
@@ -3149,13 +3208,14 @@
   (if (or (null name) (= name "")) (setq name "drawing.dwg"))
   (setq base (mj:safe-name (strcat (mj:no-ext name) "_可编辑")))
   (prompt (strcat "\n  图纸: " (if path path "(还没保存过)")))
-  (setq writable (if path (and (mj:can-write path) (mj:can-write-dir dir)) T))
+
+  (setq writable (if path (mj:can-write path) T))
+  (setq dirw     (if path (mj:can-write-dir dir) T))
   (if path
-    (prompt (strcat "\n  文件: " (if writable "可写" "只读，磁盘上写不进去")))
-    (prompt "\n  文件: 新图纸还没存过盘，本来就能直接写")
-  )
-  (if (and path (findfile (strcat (mj:no-ext path) ".dwl2")))
-    (prompt "\n  占用: 有 .dwl2 锁文件，可能还有另一个 CAD 窗口开着这张图")
+    (progn
+      (prompt (strcat "\n  文件: " (if writable "可写" "只读（-r--r--r--，改完存不回去）")))
+      (prompt (strcat "\n  文件夹: " (if dirw "可写" "只读（连副本都写不进去）")))
+    )
   )
   (setq locked (mj:locked-layers))
   (prompt (strcat "\n  锁定图层: " (itoa (length locked)) " 个"
@@ -3163,49 +3223,68 @@
                     (strcat "  " (mj:join locked " / "))
                     ""
                   )))
-  (if (or writable (null path))
-    (prompt "\n\n  图纸本身可以写，只需要把锁定的图层解开。")
-    (progn
-      (prompt "\n\n  这张图是只读的，改完没法存回原文件。")
-      (prompt "\n  可以另存一份可编辑的副本继续做，原文件原样保留。")
-      (initget "Y N")
-      (setq ans (getkword "\n  生成可编辑副本？[是(Y)/否(N)] <是>: "))
-      (if (or (null ans) (equal "Y" ans))
-        (progn
-          (setq target (mj:copy-target dir base))
-          (if (null target)
-            (prompt "\n  没有找到能写的文件夹，请手动用“另存为”。")
+
+  (cond
+    ;; ---- the file itself is read only -------------------------------
+    ((and path (not writable))
+      (prompt "\n\n  这张图是只读的，改完存不回去。两种处理办法：")
+      (prompt "\n    [1] 直接解除只读 —— 只改文件权限，内容一个字节都不变")
+      (prompt "\n    [2] 复制一份可编辑副本 —— 原文件保持原样，不动它")
+      (initget "1 2 0")
+      (setq ans (getkword "\n  选一个 [1/2/0 取消] <1>: "))
+      (cond
+        ((or (null ans) (equal ans "1"))
+          (prompt "\n  正在解除…（文件大的话要等几秒，别按 Esc）")
+          (if (mj:make-writable path)
             (progn
-              (prompt (strcat "\n  正在另存为: " target))
-              (if (mj:save-copy target)
-                (progn
-                  (prompt "\n  已切换到这个副本，现在可以正常编辑和保存。")
-                  (prompt "\n  原文件没有被改动，确认不需要了可以自己删掉。")
-                )
-                (progn
-                  (prompt "\n  另存失败。请用 文件 > 另存为 存到一个能写的文件夹里。")
-                  (prompt "\n  （如果提示文件格式，直接回车用默认格式即可。）")
-                )
+              (prompt "\n  已解除：文件现在可写了。")
+              (prompt "\n  接下来【关闭这张图，不用保存】，再重新打开，就能改、能存。")
+              (prompt "\n  （只读是打开文件那一刻记下的，所以必须重开一次。）")
+              (if (> (length locked) 0)
+                (prompt "\n  重开之后再运行一次 MJUNLOCK，就能把锁着的图层也解开。")
               )
             )
+            (prompt "\n  解除失败：文件可能正被别的程序占用，或者磁盘不可写。")
           )
         )
-        (prompt "\n  已跳过另存。")
+        ((equal ans "2")
+          (setq target (mj:copy-target dir base))
+          (if (and target (mj:file-copy path target))
+            (progn
+              (prompt (strcat "\n  已复制到: " target))
+              (prompt "\n  用“文件 - 打开”打开这个副本就能编辑和保存，原文件不动。")
+            )
+            (prompt "\n  复制失败，请手动把文件复制到桌面再用。")
+          )
+        )
+        (t (prompt "\n  已取消。"))
       )
     )
-  )
-  (setq res (mj:unlock-all))
-  (if (> (car res) 0)
-    (prompt (strcat "\n  已解锁 " (itoa (car res)) " 个锁定图层。"))
-  )
-  (if (> (cadr res) 0)
-    (progn
-      (prompt (strcat "\n  有 " (itoa (cadr res)) " 个图层解不开。"))
-      (prompt "\n  （外部参照图层永远是只读的，要改它得用 XOPEN 或把参照绑定进来。）")
+
+    ;; ---- the file can be written ------------------------------------
+    (t
+      (prompt "\n\n  文件本身是可写的，不需要改权限。")
+      (if untitled
+        (prompt "\n  新图纸还没存过盘，直接保存就行。")
+        (progn
+          (prompt "\n  如果标题栏还写着“只读”，多半是另一个 CAD 窗口正开着同一张图：")
+          (prompt "\n  关掉那个窗口，或者关掉这张图再打开。")
+        )
+      )
+      (setq res (mj:unlock-all))
+      (if (> (car res) 0)
+        (prompt (strcat "\n  已解锁 " (itoa (car res)) " 个锁定图层。"))
+      )
+      (if (> (cadr res) 0)
+        (progn
+          (prompt (strcat "\n  有 " (itoa (cadr res)) " 个图层解不开。"))
+          (prompt "\n  （外部参照图层永远是只读的，要改它得用 XOPEN 或把参照绑定进来。）")
+        )
+      )
+      (if (and (= 0 (car res)) (= 0 (cadr res)))
+        (prompt "\n  没有锁定的图层。")
+      )
     )
-  )
-  (if (and (= 0 (car res)) (= 0 (cadr res)))
-    (prompt "\n  没有锁定的图层。")
   )
   (prompt "\n")
   (mj:off)
@@ -3467,8 +3546,10 @@
   (prompt "\nMJTSET  瓷砖参数设置（PT 里输 M 也可以）：砖长/宽、美缝、偏移、角度、图层")
   (prompt "\n")
   (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印 / 瓷砖铺贴")
-  (prompt "\nMJUNLOCK 解除只读: 只读图纸另存为可编辑副本并切换过去，")
-  (prompt "\n        同时解开图纸里所有锁定的图层（原文件不动）")
+  (prompt "\nMJUNLOCK 解除只读: 图纸权限是只读（-r--r--r--）时，把文件改成可写，")
+  (prompt "\n        内容一个字节都不变；改完关掉这张图重新打开就能存。")
+  (prompt "\n        也可以选择“复制一份可编辑副本”（原文件不动）；")
+  (prompt "\n        顺手解开图纸里锁定的图层。")
   (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 解除只读 / 卸载插件")
   (prompt "\n可标注: 闭合多段线、圆、椭圆、闭合样条、面域、填充。")
   (prompt "\n设置保存在 MJArea.ini 中，下次打开图纸依然有效。")

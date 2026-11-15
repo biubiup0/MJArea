@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<Root SchemaVersion="1">
+    <Collection UUID="58223918-8E8C-4085-9A04-07144C42B688">
+        <ActionDef UID="MJ_ID_AREA" Name="面积周长" Command="^C^C_MJA" Type="Tools" CLICommand="MJ" Image="RCDATA_16_AREA" Help="点取区域内部一点自动生成边界，输出面积、周长并画红色加粗轮廓"></ActionDef>
+        <ActionDef UID="MJ_ID_PLOT" Name="批量打印" Command="^C^C_MJPLOTQ" Type="Tools" CLICommand="DY" Image="RCDATA_16_PRINT" Help="批量打印：框选图框后直接按上次的设置出图"></ActionDef>
+        <ActionDef UID="MJ_ID_TILE" Name="瓷砖铺贴" Command="^C^C_MJTILE" Type="Tools" CLICommand="PT" Image="RCDATA_16_BHATCH" Help="瓷砖铺贴：点封闭空间 → 输砖长/宽/美缝 → 点起点，生成双线砖缝网格"></ActionDef>
+        <ActionDef UID="MJ_ID_UNINSTALL" Name="卸载插件" Command="^C^C_MJUNINSTALL" Type="Tools" CLICommand="MJUNINSTALL" Image="RCDATA_16_ERASE" Help="卸载 MJArea 插件，并还原被改过的设置文件"></ActionDef>
+    </Collection>
+</Root>
