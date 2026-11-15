@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.9")
+(setq *mj-ver* "6.10")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -2965,6 +2965,254 @@
 )
 
 ;; ------------------------------------------------------------
+;; unlock : make a read only drawing editable again
+;; ------------------------------------------------------------
+;; Users call three different things "read only":
+;;   1. the dwg file itself cannot be written (permission, or the
+;;      read only flag on a file that came from a cd / usb stick)
+;;   2. another AutoCAD window has the same file open (xxx.dwl2)
+;;   3. layers inside the drawing are locked
+;; (1) and (2) cannot be cured from inside the running drawing, so we
+;; save a writable copy next to the original and keep working in that
+;; copy - the original file is never touched.  (3) is fixed in place.
+
+(defun mj:no-ext (name / n)
+  (setq n name)
+  (if (wcmatch (strcase n) "*.DWG")
+    (setq n (substr n 1 (- (strlen n) 4)))
+  )
+  n
+)
+
+(defun mj:path-join (dir name / d)
+  (setq d dir)
+  (if (or (null d) (= d ""))
+    (setq d "")
+    (if (/= (substr d (strlen d) 1) "/")
+      (setq d (strcat d "/"))
+    )
+  )
+  (strcat d name)
+)
+
+(defun mj:dwg-path ( / n)
+  (setq n (getvar "DWGNAME"))
+  (if (or (null n) (= n ""))
+    nil
+    (mj:path-join (mj:drawing-dir) n)
+  )
+)
+
+(defun mj:close-file (f)
+  (if f
+    (if *mj-catch*
+      (vl-catch-all-apply 'close (list f))
+      (close f)
+    )
+  )
+)
+
+;; append mode asks the OS for write permission and writes nothing at all
+(defun mj:can-write (path / fp ok)
+  (setq ok nil)
+  (if (and path (= (type path) 'STR) (findfile path))
+    (progn
+      (setq fp (if *mj-catch*
+                 (vl-catch-all-apply 'open (list path "a"))
+                 (open path "a")))
+      (if (and *mj-catch* (vl-catch-all-error-p fp)) (setq fp nil))
+      (if fp
+        (progn (mj:close-file fp) (setq ok T))
+      )
+    )
+  )
+  ok
+)
+
+(defun mj:can-write-dir (dir / p fp ok)
+  (setq ok nil)
+  (if (and dir (= (type dir) 'STR) (> (strlen dir) 1))
+    (progn
+      (setq p (strcat dir ".mjarea-write-test"))
+      (setq fp (if *mj-catch*
+                 (vl-catch-all-apply 'open (list p "w"))
+                 (open p "w")))
+      (if (and *mj-catch* (vl-catch-all-error-p fp)) (setq fp nil))
+      (if fp
+        (progn
+          (mj:close-file fp)
+          (if *mj-catch*
+            (vl-catch-all-apply 'vl-file-delete (list p))
+            (vl-file-delete p)
+          )
+          (setq ok T)
+        )
+      )
+    )
+  )
+  ok
+)
+
+(defun mj:home-dir ( / h)
+  (setq h (getenv "HOME"))
+  (if (and h (/= h "")) (strcat h "/") nil)
+)
+
+;; first name of the form  <base>.dwg / <base>-1.dwg / ... that is free
+(defun mj:free-copy (dir base / p i)
+  (setq p (strcat dir base ".dwg") i 0)
+  (while (findfile p)
+    (setq i (1+ i))
+    (setq p (strcat dir base "-" (itoa i) ".dwg"))
+  )
+  p
+)
+
+;; writable folder for the copy: next to the drawing, else the Desktop
+(defun mj:copy-target (dir base / cands c out h)
+  (setq out nil)
+  (setq h (mj:home-dir))
+  (setq cands (list dir (if h (strcat h "Desktop/"))))
+  (foreach c cands
+    (if (and (null out) c (mj:can-write-dir c))
+      (setq out (mj:free-copy c base))
+    )
+  )
+  out
+)
+
+(defun mj:locked-layers ( / e out)
+  (setq out '())
+  (setq e (tblnext "LAYER" T))
+  (while e
+    (if (= 4 (logand 4 (cdr (assoc 70 e))))
+      (setq out (cons (cdr (assoc 2 e)) out))
+    )
+    (setq e (tblnext "LAYER"))
+  )
+  (reverse out)
+)
+
+;; layer flags bit 2 (value 4) means locked; clear it, keep the others
+(defun mj:unlock-layer (name / e d)
+  (setq e (entget (tblobjname "LAYER" name)))
+  (if e
+    (progn
+      (setq d (assoc 70 e))
+      (if (/= 4 (logand 4 (cdr d)))
+        T
+        (if (entmod (subst (cons 70 (logand (cdr d) -5)) d e))
+          (= 0 (logand 4 (cdr (assoc 70 (entget (tblobjname "LAYER" name))))))
+          nil
+        )
+      )
+    )
+    nil
+  )
+)
+
+;; -> (unlocked failed)
+(defun mj:unlock-all ( / lst ok bad)
+  (setq lst (mj:locked-layers) ok 0 bad 0)
+  (foreach n lst
+    (if (mj:unlock-layer n) (setq ok (1+ ok)) (setq bad (1+ bad)))
+  )
+  (list ok bad)
+)
+
+;; SAVEAS is the only way to make the open document point at a writable
+;; file.  It asks for the file format first, then for the file name.
+(defun mj:save-copy (target / oldf res ok)
+  (setq oldf (getvar "FILEDIA"))
+  (setvar "FILEDIA" 0)
+  (setq res (if *mj-catch*
+              (vl-catch-all-apply 'command (list "_.SAVEAS" "2018" target))
+              (progn (command "_.SAVEAS" "2018" target) T)))
+  (setvar "FILEDIA" oldf)
+  (setq ok nil)
+  (if (not (and *mj-catch* (vl-catch-all-error-p res)))
+    (if (equal (strcase target) (strcase (mj:dwg-path)))
+      (setq ok T)
+    )
+  )
+  ok
+)
+
+(defun c:MJUNLOCK ( / path dir name base untitled writable locked res target ans)
+  (mj:init)
+  (mj:on)
+  (prompt "\n[我的工具] 解除只读")
+  (setq untitled (= 0 (getvar "DWGTITLED")))
+  (setq path (if untitled nil (mj:dwg-path)))
+  (setq dir (mj:drawing-dir))
+  (setq name (getvar "DWGNAME"))
+  (if (or (null name) (= name "")) (setq name "drawing.dwg"))
+  (setq base (mj:safe-name (strcat (mj:no-ext name) "_可编辑")))
+  (prompt (strcat "\n  图纸: " (if path path "(还没保存过)")))
+  (setq writable (if path (and (mj:can-write path) (mj:can-write-dir dir)) T))
+  (if path
+    (prompt (strcat "\n  文件: " (if writable "可写" "只读，磁盘上写不进去")))
+    (prompt "\n  文件: 新图纸还没存过盘，本来就能直接写")
+  )
+  (if (and path (findfile (strcat (mj:no-ext path) ".dwl2")))
+    (prompt "\n  占用: 有 .dwl2 锁文件，可能还有另一个 CAD 窗口开着这张图")
+  )
+  (setq locked (mj:locked-layers))
+  (prompt (strcat "\n  锁定图层: " (itoa (length locked)) " 个"
+                  (if (and locked (<= (length locked) 6))
+                    (strcat "  " (mj:join locked " / "))
+                    ""
+                  )))
+  (if (or writable (null path))
+    (prompt "\n\n  图纸本身可以写，只需要把锁定的图层解开。")
+    (progn
+      (prompt "\n\n  这张图是只读的，改完没法存回原文件。")
+      (prompt "\n  可以另存一份可编辑的副本继续做，原文件原样保留。")
+      (initget "Y N")
+      (setq ans (getkword "\n  生成可编辑副本？[是(Y)/否(N)] <是>: "))
+      (if (or (null ans) (equal "Y" ans))
+        (progn
+          (setq target (mj:copy-target dir base))
+          (if (null target)
+            (prompt "\n  没有找到能写的文件夹，请手动用“另存为”。")
+            (progn
+              (prompt (strcat "\n  正在另存为: " target))
+              (if (mj:save-copy target)
+                (progn
+                  (prompt "\n  已切换到这个副本，现在可以正常编辑和保存。")
+                  (prompt "\n  原文件没有被改动，确认不需要了可以自己删掉。")
+                )
+                (progn
+                  (prompt "\n  另存失败。请用 文件 > 另存为 存到一个能写的文件夹里。")
+                  (prompt "\n  （如果提示文件格式，直接回车用默认格式即可。）")
+                )
+              )
+            )
+          )
+        )
+        (prompt "\n  已跳过另存。")
+      )
+    )
+  )
+  (setq res (mj:unlock-all))
+  (if (> (car res) 0)
+    (prompt (strcat "\n  已解锁 " (itoa (car res)) " 个锁定图层。"))
+  )
+  (if (> (cadr res) 0)
+    (progn
+      (prompt (strcat "\n  有 " (itoa (cadr res)) " 个图层解不开。"))
+      (prompt "\n  （外部参照图层永远是只读的，要改它得用 XOPEN 或把参照绑定进来。）")
+    )
+  )
+  (if (and (= 0 (car res)) (= 0 (cadr res)))
+    (prompt "\n  没有锁定的图层。")
+  )
+  (prompt "\n")
+  (mj:off)
+  (princ)
+)
+
+;; ------------------------------------------------------------
 ;; settings wizard
 ;; ------------------------------------------------------------
 
@@ -3219,7 +3467,9 @@
   (prompt "\nMJTSET  瓷砖参数设置（PT 里输 M 也可以）：砖长/宽、美缝、偏移、角度、图层")
   (prompt "\n")
   (prompt "\n我的工具（工具栏）: 面积周长 / 批量打印 / 瓷砖铺贴")
-  (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 卸载插件")
+  (prompt "\nMJUNLOCK 解除只读: 只读图纸另存为可编辑副本并切换过去，")
+  (prompt "\n        同时解开图纸里所有锁定的图层（原文件不动）")
+  (prompt "\n我的工具（菜单栏）: 面积周长 / 批量打印 / 瓷砖铺贴 / 解除只读 / 卸载插件")
   (prompt "\n可标注: 闭合多段线、圆、椭圆、闭合样条、面域、填充。")
   (prompt "\n设置保存在 MJArea.ini 中，下次打开图纸依然有效。")
   (princ)
@@ -3232,9 +3482,9 @@
   (progn
     (setq *mj-loaded* t)
     (prompt (strcat "\nMJArea " *mj-ver*
-                    " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴)"))
+                    " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴 + 解除只读)"))
     (prompt "\n命令: MJ (面积周长)   DY (批量打印)   PT (瓷砖铺贴)   设置 MJSET")
-    (prompt "\n瓷砖 PT (铺贴)   MJTSET/M (参数设置)   设置 MJSET   帮助 MJHELP")
+    (prompt "\n只读图纸: MJUNLOCK (解除只读)   帮助 MJHELP")
     (prompt (strcat "\n自检: "
                     (if (and mj:cmd-main mj:header mj:assemble)
                       "内部函数正常"

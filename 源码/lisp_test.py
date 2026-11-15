@@ -1118,6 +1118,68 @@ def main():
     check("tile origin: next joint is one tile + grout away",
           1200.0 in xs3 and 800.0 in ys3, "x=%r y=%r" % (xs3, ys3))
 
+
+    # 29) unlock helpers : names, paths, layer flags
+    check("unlock: no-ext strips .dwg only",
+          ev('(mj:no-ext "plan.dwg")') == "plan"
+          and ev('(mj:no-ext "plan.dxf")') == "plan.dxf",
+          repr(ev('(mj:no-ext "plan.dwg")')))
+    check("unlock: path join adds a missing slash",
+          ev('(mj:path-join "/tmp/a" "b.dwg")') == "/tmp/a/b.dwg"
+          and ev('(mj:path-join "/tmp/a/" "b.dwg")') == "/tmp/a/b.dwg", "")
+
+    files = set(["/tmp/plan_编辑.dwg", "/tmp/plan_编辑-1.dwg"])
+    BUILTINS["FINDFILE"] = lambda p: p if p in files else None
+    check("unlock: copy name skips names already on disk",
+          ev('(mj:free-copy "/tmp/" "plan_编辑")') == "/tmp/plan_编辑-2.dwg",
+          repr(ev('(mj:free-copy "/tmp/" "plan_编辑")')))
+
+    # fake layer table: one unlocked, one locked, one xref layer that
+    # AutoCAD refuses to modify
+    db = {
+        "0": [Dot([2, "0"]), Dot([70, 0])],
+        "A-墙": [Dot([2, "A-墙"]), Dot([70, 4])],
+        "XREF|A-1": [Dot([2, "XREF|A-1"]), Dot([70, 4])],
+    }
+    order = ["0", "A-墙", "XREF|A-1"]
+    pos = [-1]
+
+    def fake_tblnext(tbl, flag=None):
+        if flag:
+            pos[0] = 0
+        else:
+            pos[0] += 1
+        return None if pos[0] >= len(order) else db[order[pos[0]]]
+
+    def fake_entmod(form):
+        name = None
+        flag = None
+        for q in form:
+            if q[0] == 2:
+                name = q[1]
+            if q[0] == 70:
+                flag = q[1]
+        if name is None or name.startswith("XREF|"):
+            return None
+        db[name] = form
+        return form
+
+    BUILTINS["TBLNEXT"] = fake_tblnext
+    BUILTINS["TBLOBJNAME"] = lambda tbl, name: name
+    BUILTINS["ENTGET"] = lambda name: db.get(name)
+    BUILTINS["ENTMOD"] = fake_entmod
+
+    check("unlock: locked layers found",
+          sorted(ev("(mj:locked-layers)")) == ["A-墙", "XREF|A-1"],
+          repr(ev("(mj:locked-layers)")))
+    res = ev("(mj:unlock-all)")
+    check("unlock: one layer unlocked, xref layer reported as failed",
+          list(res) == [1, 1], repr(res))
+    check("unlock: locked bit cleared, other flags kept",
+          dict((q[0], q[1]) for q in db["A-墙"])[70] == 0, repr(db["A-墙"]))
+    check("unlock: unlocked layer untouched",
+          dict((q[0], q[1]) for q in db["0"])[70] == 0, repr(db["0"]))
+
     print()
     if failures:
         print("FAILED: %d test(s): %s" % (len(failures), ", ".join(failures)))

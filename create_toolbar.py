@@ -39,9 +39,15 @@ ACTIONS = [
      "批量打印：框选图框后直接按上次的设置出图"),
     ("MJ_ID_TILE", "瓷砖铺贴", "^C^C_MJTILE", "PT", "RCDATA_16_BHATCH",
       "瓷砖铺贴：点封闭空间 → 输砖长/宽/美缝 → 点起点，生成双线砖缝网格"),
+    ("MJ_ID_UNLOCK", "解除只读", "^C^C_MJUNLOCK", "MJUNLOCK", "RCDATA_16_LAYER_FADING_LOCKED",
+     "只读图纸：另存一份可编辑副本并切换过去，同时解开所有锁定图层"),
     ("MJ_ID_UNINSTALL", "卸载插件", "^C^C_MJUNINSTALL", "MJUNINSTALL", "RCDATA_16_ERASE",
      "卸载 MJArea 插件，并还原被改过的设置文件"),
 ]
+
+# these only make sense as a deliberate menu click, so they stay out of
+# the window toolbar
+TOOLBAR_SKIP = ("卸载插件", "解除只读")
 
 
 def uid():
@@ -68,7 +74,7 @@ def toolbar_block():
     parts = ['<Collection UUID="%s" UID="%s" Label="%s">'
              % (uid(), BLOCK_UID, GROUP_LABEL)]
     for u, name, cmd, cli, img, help_text in ACTIONS:
-        if name == "卸载插件":
+        if name in TOOLBAR_SKIP:
             continue
         parts.append(
             '<Control UUID="%s" Type="CommandButton" Label="%s">'
