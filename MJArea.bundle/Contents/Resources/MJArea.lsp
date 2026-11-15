@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.13")
+(setq *mj-ver* "6.14")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -1409,15 +1409,15 @@
   (list cur used)
 )
 
-;; walk both ways from the seed segment -> (end1 end2).
-(defun mj:chain-ends (segs tol seed / r fwd)
+;; walk both ways from the seed segment -> (end1 end2 used-segments)
+(defun mj:chain-ends (segs tol seed / r fwd used)
   (setq r (mj:walk segs (list seed) tol (cadr seed)))
-  (setq fwd (car r))
-  (setq r (mj:walk segs (cadr r) tol (car seed)))
-  (list fwd (car r))
+  (setq fwd (car r) used (cadr r))
+  (setq r (mj:walk segs used tol (car seed)))
+  (list fwd (car r) (cadr r))
 )
 
-;; -> nil | 'closed | (end1 end2 distance seed)
+;; -> nil | 'closed | (end1 end2 distance seed used-segments)
 (defun mj:gap-scan (segs tol seed / g d)
   (if (null seed)
     nil
@@ -1426,9 +1426,56 @@
       (setq d (distance (car g) (cadr g)))
       (if (<= d tol)
         'closed
-        (list (car g) (cadr g) d seed)
+        (list (car g) (cadr g) d seed (caddr g))
       )
     )
+  )
+)
+
+;; does the +x ray from P cross this segment ?  (bulges ignored)
+(defun mj:ray-cross (p s / x0 y0 x1 y1 x2 y2)
+  (setq x0 (car p) y0 (cadr p))
+  (setq x1 (car (car s)) y1 (cadr (car s)))
+  (setq x2 (car (cadr s)) y2 (cadr (cadr s)))
+  (if (and (/= (> y1 y0) (> y2 y0)) (/= y1 y2))
+    (if (> (+ x1 (/ (* (- x2 x1) (- y0 y1)) (- y2 y1))) x0) 1 0)
+    0
+  )
+)
+
+;; is P inside the ring made of these segments ?  (odd crossings)
+(defun mj:chain-inside (p used / c)
+  (setq c 0)
+  (foreach s used (setq c (+ c (mj:ray-cross p s))))
+  (= 1 (rem c 2))
+)
+
+;; the k segments closest to P, so a piece of furniture does not steal
+;; the anchor from the room boundary
+(defun mj:nearest-segs (segs p k / out s d best bd i)
+  (setq out '() i 0)
+  (while (< i k)
+    (setq best nil bd -1.0)
+    (foreach s segs
+      (if (not (memq s out))
+        (progn
+          (setq d (mj:pt-seg-dist p s))
+          (if (or (< bd 0.0) (< d bd)) (setq bd d best s))
+        )
+      )
+    )
+    (if best (setq out (append out (list best))))
+    (setq i (1+ i))
+  )
+  out
+)
+
+;; optional trace file, handy when someone reports "nothing happened"
+(defun mj:dbg (s / p f)
+  (setq p (strcat (getenv "HOME") "/Library/Application Support/Autodesk/MJArea-debug.log"))
+  (setq f (if *mj-catch* (vl-catch-all-apply 'open (list p "a")) (open p "a")))
+  (if (and f (not (and *mj-catch* (vl-catch-all-error-p f))))
+    (progn (write-line s f) (mj:close-file f))
   )
 )
 
@@ -1492,19 +1539,59 @@
   )
 )
 
-;; the opening around the clicked point, using only what is on screen
-(defun mj:gap-search (pt / segs win diag tol seed)
-  (setq segs (mj:segs-in-box (mj:view-box)))
-  (cond
-    ((null segs) nil)
-    ((> (length segs) 600) nil)
-    (t
-      (setq win (mj:view-box))
-      (setq diag (distance (car win) (cadr win)))
-      (setq tol (/ diag 20000.0))
-      (if (< tol 0.000001) (setq tol 0.000001))
-      (setq seed (mj:nearest-seg segs pt))
-      (mj:gap-scan segs tol seed)
+;; the opening around the clicked point.
+;; only what is on screen, only what can belong to the ring around the
+;; point, and a few anchor lines are tried so a closed piece of
+;; furniture inside the room cannot hide the real opening.
+(defun mj:gap-search (pt / win diag tol segs near cands res seen g n first)
+  (setq win (mj:view-box))
+  (setq diag (distance (car win) (cadr win)))
+  (setq tol (/ diag 20000.0))
+  (if (< tol 0.000001) (setq tol 0.000001))
+  (setq segs (mj:segs-in-box win))
+  (setq n (length segs))
+  (if (or (null segs) (> n 1500))
+    nil
+    (progn
+      (setq near '())
+      (foreach s segs
+        (if (< (mj:pt-seg-dist pt s) (* 0.5 diag))
+          (setq near (cons s near))
+        )
+      )
+      (setq segs (reverse near))
+      (if (or (< (length segs) 2) (> (length segs) 500))
+        (progn
+          (mj:dbg (strcat "search: view segs=" (itoa n)
+                          " near=" (itoa (length segs)) " -> give up"))
+          nil
+        )
+        (progn
+          (setq cands (mj:nearest-segs segs pt 6) res nil seen nil)
+          (foreach seed cands
+            (if (null res)
+              (progn
+                (setq g (mj:gap-scan segs tol seed))
+                (cond
+                  ((null g) nil)
+                  ((eq g 'closed) (setq seen 'closed))
+                  ((mj:chain-inside pt (nth 4 g)) (setq res g))
+                  ((null first) (setq first g))
+                )
+              )
+            )
+          )
+          ;; nothing that clearly surrounds the point: take the first open
+          ;; ring anyway (a wide door opening can fool the inside test)
+          (if (null res) (setq res first))
+          (mj:dbg (strcat "search: view segs=" (itoa n)
+                          " near=" (itoa (length segs))
+                          " cands=" (itoa (length cands))
+                          " result=" (cond ((null res) (if seen "closed-only" "none"))
+                                           (t (strcat "open " (rtos (caddr res) 2 2))))))
+          (if res res seen)
+        )
+      )
     )
   )
 )
@@ -1541,19 +1628,26 @@
       )
       (progn
         (prompt "\n没能生成边界：空间没闭合。")
+        (mj:dbg (strcat "bo-fail pt=" (rtos (car pt) 2 1) "," (rtos (cadr pt) 2 1)))
         (initget "Y N")
         (if (equal "N" (getkword "\n是否自动闭合缺口？[是(Y)/否(N)] <是>: "))
-          (prompt "\n  已跳过（可以放大到房间里再点一次，或输入 S 手动选那圈线）。")
+          (progn
+            (mj:dbg "user said no")
+            (prompt "\n  已跳过（可以放大到房间里再点一次，或输入 S 手动选那圈线）。")
+          )
           (progn
             (setq g (mj:gap-search pt))
             (cond
               ((null g)
+                (mj:dbg "search found nothing")
                 (prompt "\n  没找到缺口：把视图放大到出问题的房间，再点一次。")
+                (prompt "\n  （详细记录写在 MJArea-debug.log 里，可以发给我。）")
               )
               ((eq g 'closed)
                 (prompt "\n  这圈线其实是闭合的：多半是点贴在线上了，换个靠里一点的位置。")
               )
               ((mj:gap-close g)
+                (mj:dbg (strcat "patched line, gap=" (rtos (caddr g) 2 2)))
                 (prompt "\n  已补上缺口，重新计算……")
                 (setq e (mj:boundary-from-point pt))
                 (if e

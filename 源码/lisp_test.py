@@ -1295,6 +1295,30 @@ def main():
     check("gap: nothing to draw when the loop is closed",
           not ev("(mj:gap-close G2)"), "")
 
+
+    # 33) anchoring: a closed piece of furniture must not hide the room gap
+    env["ROOM"] = ev("(list (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0)"
+                     " (list '(100.0 0.0 0.0) '(100.0 100.0 0.0) 0.0)"
+                     " (list '(100.0 100.0 0.0) '(0.0 100.0 0.0) 0.0)"
+                     " (list '(0.0 100.0 0.0) '(0.0 5.0 0.0) 0.0))")
+    check("gate: point inside the room ring",
+          bool(ev("(mj:chain-inside '(50.0 50.0 0.0) ROOM)")), "")
+    check("gate: point outside the room ring",
+          not ev("(mj:chain-inside '(150.0 50.0 0.0) ROOM)"), "")
+    env["FURN"] = ev("(list (list '(40.0 40.0 0.0) '(60.0 40.0 0.0) 0.0)"
+                      " (list '(60.0 40.0 0.0) '(60.0 60.0 0.0) 0.0)"
+                      " (list '(60.0 60.0 0.0) '(40.0 60.0 0.0) 0.0)"
+                      " (list '(40.0 60.0 0.0) '(40.0 40.0 0.0) 0.0))")
+    env["ALL"] = ev("(append ROOM FURN)")
+    sc = ev("(mj:gap-scan ALL 0.05 (car FURN))")
+    check("gate: a closed furniture ring reports closed, not a gap",
+          str(sc).upper() == "CLOSED", repr(sc))
+    sc = ev("(mj:gap-scan ALL 0.05 (car ROOM))")
+    check("gate: the room still reports its own opening",
+          isinstance(sc, list) and close(sc[2], 5.0), repr(sc))
+    anchors = ev("(mj:nearest-segs ALL '(50.0 50.0 0.0) 4)")
+    check("gate: several anchors are offered", len(anchors) == 4, repr(anchors))
+
     print()
     if failures:
         print("FAILED: %d test(s): %s" % (len(failures), ", ".join(failures)))
