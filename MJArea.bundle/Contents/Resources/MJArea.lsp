@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.14")
+(setq *mj-ver* "6.15")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -1450,6 +1450,25 @@
   (= 1 (rem c 2))
 )
 
+;; the k longest segments - walls are long, furniture edges are short
+(defun mj:longest-segs (segs k / out s d best bd i)
+  (setq out '() i 0)
+  (while (< i k)
+    (setq best nil bd -1.0)
+    (foreach s segs
+      (if (not (memq s out))
+        (progn
+          (setq d (distance (car s) (cadr s)))
+          (if (> d bd) (setq bd d best s))
+        )
+      )
+    )
+    (if best (setq out (append out (list best))) (setq i k))
+    (setq i (1+ i))
+  )
+  out
+)
+
 ;; the k segments closest to P, so a piece of furniture does not steal
 ;; the anchor from the room boundary
 (defun mj:nearest-segs (segs p k / out s d best bd i)
@@ -1543,35 +1562,51 @@
 ;; only what is on screen, only what can belong to the ring around the
 ;; point, and a few anchor lines are tried so a closed piece of
 ;; furniture inside the room cannot hide the real opening.
-(defun mj:gap-search (pt / win diag tol segs near cands res seen g n first)
+(defun mj:gap-search (pt / win diag tol segs near cands res seen g n first r)
   (setq win (mj:view-box))
   (setq diag (distance (car win) (cadr win)))
   (setq tol (/ diag 20000.0))
   (if (< tol 0.000001) (setq tol 0.000001))
   (setq segs (mj:segs-in-box win))
   (setq n (length segs))
-  (if (or (null segs) (> n 1500))
-    nil
-    (progn
-      (setq near '())
-      (foreach s segs
-        (if (< (mj:pt-seg-dist pt s) (* 0.5 diag))
-          (setq near (cons s near))
-        )
+  (cond
+    ((null segs) nil)
+    ((> n 4000)
+      (mj:dbg (strcat "search: " (itoa n) " segments in view -> too many"))
+      nil
+    )
+    (t
+      ;; keep what can belong to the ring around the point.  a busy room
+      ;; can have hundreds of lines in view, so the radius shrinks until
+      ;; the set is small enough - the nearest lines are the ones that
+      ;; matter for the ring the user clicked in.
+      (setq r (* 0.5 diag))
+      (setq near (mj:near-segs segs pt r))
+      (while (and (> (length near) 1200) (> r (* 0.01 diag)))
+        (setq r (* 0.75 r))
+        (setq near (mj:near-segs segs pt r))
       )
-      (setq segs (reverse near))
-      (if (or (< (length segs) 2) (> (length segs) 500))
-        (progn
+      (setq segs near)
+      (cond
+        ((or (< (length segs) 2) (> (length segs) 1200))
           (mj:dbg (strcat "search: view segs=" (itoa n)
                           " near=" (itoa (length segs)) " -> give up"))
           nil
         )
-        (progn
-          (setq cands (mj:nearest-segs segs pt 6) res nil seen nil)
+        (t
+          (setq cands (mj:nearest-segs segs pt 4) res nil seen nil first nil)
+          (foreach seed (mj:longest-segs segs 4)
+            (if (not (memq seed cands)) (setq cands (append cands (list seed))))
+          )
           (foreach seed cands
             (if (null res)
               (progn
                 (setq g (mj:gap-scan segs tol seed))
+                (mj:dbg (strcat "  cand len=" (rtos (distance (car seed) (cadr seed)) 2 1)
+                                " d=" (rtos (mj:pt-seg-dist pt seed) 2 1)
+                                " -> " (cond ((null g) "nil")
+                                             ((eq g 'closed) "closed")
+                                             (t (strcat "open " (rtos (caddr g) 2 1))))))
                 (cond
                   ((null g) nil)
                   ((eq g 'closed) (setq seen 'closed))
@@ -1594,6 +1629,17 @@
       )
     )
   )
+)
+
+;; segments whose distance to P is below R
+(defun mj:near-segs (segs p r / out)
+  (setq out '())
+  (foreach s segs
+    (if (< (mj:pt-seg-dist p s) r)
+      (setq out (cons s out))
+    )
+  )
+  (reverse out)
 )
 
 ;; one line across the opening, on the layer of the boundary it joins
@@ -1640,11 +1686,20 @@
             (cond
               ((null g)
                 (mj:dbg "search found nothing")
-                (prompt "\n  没找到缺口：把视图放大到出问题的房间，再点一次。")
-                (prompt "\n  （详细记录写在 MJArea-debug.log 里，可以发给我。）")
+                (prompt "\n  自动找缺口没找到（周围线太多，或这根本不是缺口问题）。")
+                (initget "Y N")
+                (if (equal "N" (getkword "\n  改为手动框选这个房间的边界？[是(Y)/否(N)] <是>: "))
+                  (prompt "\n  已跳过。")
+                  (mj:cmd-select)
+                )
               )
               ((eq g 'closed)
-                (prompt "\n  这圈线其实是闭合的：多半是点贴在线上了，换个靠里一点的位置。")
+                (prompt "\n  找到的这圈线是闭合的，不是缺口问题（可能点贴在线上了）。")
+                (initget "Y N")
+                (if (equal "N" (getkword "\n  改为手动框选这个房间的边界？[是(Y)/否(N)] <是>: "))
+                  (prompt "\n  已跳过。")
+                  (mj:cmd-select)
+                )
               )
               ((mj:gap-close g)
                 (mj:dbg (strcat "patched line, gap=" (rtos (caddr g) 2 2)))
