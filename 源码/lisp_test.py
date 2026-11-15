@@ -783,6 +783,11 @@ def close(a, b, tol=1e-6):
     return abs(a - b) <= tol
 
 
+BUILTINS["memq"] = BUILTINS["member"]
+BUILTINS["eq"] = BUILTINS["equal"]
+BUILTINS["listp"] = lambda x: True if (x is None or isinstance(x, list)) else None
+
+
 def main():
     path = sys.argv[1]
     src = open(path, encoding="utf-8-sig").read().replace("\r\n", "\n")
@@ -1255,12 +1260,40 @@ def main():
     check("gap: a 1 unit gap is still found with tol 0.5",
           close(e[0][1], 100.0) and close(e[1][1], 0.0), repr(e))
 
-    check("gap: box distance is 0 inside",
-          close(ev("(mj:box-dist '(50.0 50.0 0.0) (list 0.0 0.0 100.0 100.0))"), 0.0), "")
-    check("gap: box distance outside is the real offset",
-          close(ev("(mj:box-dist '(150.0 50.0 0.0) (list 0.0 0.0 100.0 100.0))"), 50.0), "")
+    env["SEGS4"] = ev("(list (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0)"
+                      " (list '(100.0 0.0 0.0) '(100.0 100.0 0.0) 0.0)"
+                      " (list '(100.0 100.0 0.0) '(0.0 100.0 0.0) 0.0))")
+    sc = ev("(mj:gap-scan SEGS4 0.001 (car SEGS4))")
+    check("gap: scan reports the opening with its length",
+          isinstance(sc, list) and close(sc[2], 100.0), repr(sc))
+    sc = ev("(mj:gap-scan SEGS2 0.001 (car SEGS2))")
+    check("gap: scan says closed when the loop is closed",
+          str(sc).upper() == "CLOSED", repr(sc))
+
     check("gap: point to segment distance",
           close(ev("(mj:pt-seg-dist '(50.0 50.0 0.0) (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0))"), 50.0), "")
+
+
+    # 32) gap-close actually draws the missing piece on the right layer
+    made = []
+    BUILTINS["ENTMAKEX"] = lambda lst: (made.append(lst), "LINE-ENT")[1]
+    BUILTINS["ENTGET"] = lambda e: Dot([Dot([0, "LINE"]), Dot([8, "WALL"])])
+    env["G"] = ev("(list '(0.0 0.0 0.0) '(0.0 5.0 0.0) 5.0"
+                  " (list '(0.0 0.0 0.0) '(0.0 5.0 0.0) 0.0 'E1))")
+    ok = ev("(mj:gap-close G)")
+    check("gap: close draws one line", bool(ok) and len(made) == 1, repr(made))
+    line = made[0] if made else []
+    layer = [q[1] for q in line if isinstance(q, list) and q[0] == 8]
+    p1 = [q[1] for q in line if isinstance(q, list) and q[0] == 10]
+    p2 = [q[1] for q in line if isinstance(q, list) and q[0] == 11]
+    check("gap: the patch line uses the neighbour layer",
+          layer == ["WALL"], repr(layer))
+    coords = [c for q in line if isinstance(q, list) and q[0] == 11
+              for v in q[1:] for c in (v if isinstance(v, list) else [v])]
+    check("gap: the patch line spans the opening", 5.0 in coords, repr(line))
+    env["G2"] = ev("'closed")
+    check("gap: nothing to draw when the loop is closed",
+          not ev("(mj:gap-close G2)"), "")
 
     print()
     if failures:

@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.12")
+(setq *mj-ver* "6.13")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -1349,19 +1349,12 @@
 ;; ------------------------------------------------------------
 ;; gap finder : BO failed - where is the boundary open ?
 ;; ------------------------------------------------------------
-;; BOUNDARY refuses to build an outline when the loop is not closed, and
-;; it never says where the opening is.  These helpers follow the
-;; boundary that starts at the nearest line, find where it breaks, show
-;; that spot, and (on request) put one line across it.
-;; The walking part only touches plain points, so it is unit tested.
-
-;; distance from a point to a box (0 when the point is inside)
-(defun mj:box-dist (p box / x y dx dy)
-  (setq x (car p) y (cadr p))
-  (setq dx (max 0.0 (- (car box) x) (- x (caddr box))))
-  (setq dy (max 0.0 (- (cadr box) y) (- y (cadddr box))))
-  (sqrt (+ (* dx dx) (* dy dy)))
-)
+;; BOUNDARY refuses to build an outline when the loop is not closed.
+;; When that happens we ask whether to close the opening, and if the
+;; answer is yes we follow the boundary that starts at the nearest line,
+;; find where it breaks, put one line across it and run BO again.
+;; Deliberately small: ONE selection of what is on screen, no zooming,
+;; no extra redraws, so it stays instant on a big plan.
 
 ;; distance from a point to one segment (bulges are treated as straight)
 (defun mj:pt-seg-dist (p s / a b vx vy wx wy t2 t0)
@@ -1395,10 +1388,10 @@
 ;; stops at the first break.  -> (stop-point used-list)
 (defun mj:walk (segs used tol from / cur done s rev guard)
   (setq cur from guard 0 done t)
-  (while (and done (< guard 4000))
+  (while (and done (< guard 800))
     (setq guard (1+ guard) s nil)
     (foreach x segs
-      (if (and (null s) (not (member x used)))
+      (if (and (null s) (not (memq x used)))
         (cond
           ((mj:samept cur (car x) tol) (setq s x rev nil))
           ((mj:samept cur (cadr x) tol) (setq s x rev t))
@@ -1407,7 +1400,7 @@
     )
     (if s
       (progn
-        (setq used (append used (list s)))
+        (setq used (cons s used))
         (setq cur (if rev (car s) (cadr s)))
       )
       (setq done nil)
@@ -1417,7 +1410,6 @@
 )
 
 ;; walk both ways from the seed segment -> (end1 end2).
-;; when the two ends meet, the boundary was closed.
 (defun mj:chain-ends (segs tol seed / r fwd)
   (setq r (mj:walk segs (list seed) tol (cadr seed)))
   (setq fwd (car r))
@@ -1454,20 +1446,8 @@
         (list (+ (car c) (/ w 2.0)) (+ (cadr c) (/ h 2.0)) 0.0))
 )
 
-;; scale a box around its centre
-(defun mj:scale-box (win f / c w h)
-  (setq c (list (/ (+ (car (car win)) (car (cadr win))) 2.0)
-                (/ (+ (cadr (car win)) (cadr (cadr win))) 2.0)
-                0.0))
-  (setq w (/ (* f (- (car (cadr win)) (car (car win)))) 2.0))
-  (setq h (/ (* f (- (cadr (cadr win)) (cadr (car win)))) 2.0))
-  (list (list (- (car c) w) (- (cadr c) h) 0.0)
-        (list (+ (car c) w) (+ (cadr c) h) 0.0))
-)
-
-;; every line / arc / polyline edge that crosses the box.
-;; each entry is (p1 p2 bulge entity) so the repair line can take the
-;; layer of its neighbour.
+;; every line / arc / polyline edge that crosses the box; each entry is
+;; (p1 p2 bulge entity) so the repair line can take its neighbour's layer.
 (defun mj:segs-in-box (win / ss i n e d ty v vc out)
   (setq out '())
   (setq ss (ssget "_C" (car win) (cadr win)
@@ -1480,14 +1460,14 @@
         (cond
           ((or (= ty "LINE") (= ty "ARC"))
             (foreach s (mj:ent-segs e)
-              (setq out (append out (list (list (car s) (cadr s) (caddr s) e))))
+              (setq out (cons (list (car s) (cadr s) (caddr s) e) out))
             )
           )
           ((= ty "LWPOLYLINE")
             (setq v (mj:lw-verts e))
             (setq vc (= 1 (logand 1 (fix (if (cdr (assoc 70 d)) (cdr (assoc 70 d)) 0)))))
             (foreach s (mj:verts->segs v vc)
-              (setq out (append out (list (list (car s) (cadr s) (caddr s) e))))
+              (setq out (cons (list (car s) (cadr s) (caddr s) e) out))
             )
           )
         )
@@ -1495,13 +1475,7 @@
       )
     )
   )
-  out
-)
-
-(defun mj:pt-str (p / dc)
-  (setq dc (mj:get 'dec))
-  (if (or (null dc) (< dc 1)) (setq dc 1))
-  (strcat (rtos (car p) 2 dc) ", " (rtos (cadr p) 2 dc))
+  (reverse out)
 )
 
 (defun mj:seg-layer (s / e d)
@@ -1518,116 +1492,40 @@
   )
 )
 
-;; zoom to the opening, keep the surroundings visible
-(defun mj:zoom-gap (p1 p2 / m rg h bx1 bx2 old)
-  (setq m (list (/ (+ (car p1) (car p2)) 2.0)
-                (/ (+ (cadr p1) (cadr p2)) 2.0)
-                0.0))
-  (setq h (getvar "VIEWSIZE"))
-  (setq rg (max (* 2.0 (distance p1 p2)) (/ h 25.0)))
-  (setq bx1 (list (- (car m) (* 3.0 rg)) (- (cadr m) (* 3.0 rg)) 0.0))
-  (setq bx2 (list (+ (car m) (* 3.0 rg)) (+ (cadr m) (* 3.0 rg)) 0.0))
-  (setq old (getvar "CMDECHO"))
-  (setvar "CMDECHO" 0)
-  (command "_.zoom" "_w" bx1 bx2)
-  (setvar "CMDECHO" old)
-  m
-)
-
-;; show the opening and offer to close it with one line.
-;; ctx: 'bo (clicked point) or 'sel (picked wireframe) - only the wording
-;; changes.  returns t when a line was added.
-(defun mj:gap-report (g ctx / p1 p2 d seed m rg c ans lay e)
+;; the opening around the clicked point, using only what is on screen
+(defun mj:gap-search (pt / segs win diag tol seed)
+  (setq segs (mj:segs-in-box (mj:view-box)))
   (cond
-    ((null g)
-      (if (eq ctx 'sel)
-        (progn
-          (prompt "\n  选中的线没能拼成闭合的框，也没找到明显的缺口。")
-          (prompt "\n  常见原因: 框进去的线太多、有重复线，或者只框到了房间的一部分。")
-          (prompt "\n  只框这个房间的那圈边界再试一次。")
-        )
-        (progn
-          (prompt "\n  没能在当前视图里找到缺口。")
-          (prompt "\n  把图纸放大到出问题的房间（让那圈墙线都在画面里），再点一次。")
-          (prompt "\n  也可以输入 S，手动框选房间那圈线。")
-        )
-      )
-      nil
-    )
-    ((eq g 'closed)
-      (prompt "\n  这圈线其实已经首尾相接了，拼不上是别的原因：")
-      (if (eq ctx 'sel)
-        (prompt "\n  多半是有分叉（三根线交于一点）或重复线；只框这个房间的边界再试。")
-        (prompt "\n  可能是两点之间有多条线分叉、有重复线，或者点正好落在线上。")
-      )
-      nil
-    )
+    ((null segs) nil)
+    ((> (length segs) 600) nil)
     (t
-      (setq p1 (car g) p2 (cadr g) d (caddr g) seed (cadddr g))
-      (setq m (mj:zoom-gap p1 p2))
-      (setq rg (max (* 2.0 d) (/ (getvar "VIEWSIZE") 60.0)))
-      (setq c (entmakex (list '(0 . "CIRCLE") '(8 . "0") '(62 . 1)
-                              (cons 10 m) (cons 40 rg))))
-      (prompt (strcat "\n  找到开口：两处端点相距 " (mj:fmt-len d)))
-      (prompt (strcat "\n  位置 " (mj:pt-str m) "  已放大过去，红圈就是缺口"))
-      (initget "Y N")
-      (setq ans (getkword "\n  在这里补一条线，把缺口连上？[是(Y)/否(N)] <是>: "))
-      (if (equal "N" ans)
-        (progn
-          (if c (mj:erase-ent c))
-          (prompt "\n  已取消；缺口位置看到了，自己补完再点一次就行。")
-          nil
-        )
-        (progn
-          (setq lay (mj:seg-layer seed))
-          (setq e (entmakex (list '(0 . "LINE")
-                                  (cons 8 (if lay lay "0"))
-                                  (cons 10 p1)
-                                  (cons 11 p2))))
-          (if c (mj:erase-ent c))
-          (if e
-            (progn
-              (prompt (strcat "\n  已补上（图层 " (if lay lay "0") "），重新计算面积……"))
-              t
-            )
-            (progn
-              (prompt "\n  补线失败（当前图层可能被锁定），请自己用 LINE 连一下。")
-              nil
-            )
-          )
-        )
-      )
+      (setq win (mj:view-box))
+      (setq diag (distance (car win) (cadr win)))
+      (setq tol (/ diag 20000.0))
+      (if (< tol 0.000001) (setq tol 0.000001))
+      (setq seed (mj:nearest-seg segs pt))
+      (mj:gap-scan segs tol seed)
     )
   )
 )
 
-;; find the opening around a clicked point.  starts with what is on
-;; screen and widens the search box up to 9x when the walk runs into the
-;; edge of the box instead of a real opening.
-(defun mj:gap-search (pt / base win segs tol diag g f n)
-  (setq base (mj:view-box) f 1.0 g nil n 0)
-  (setq diag (distance (car base) (cadr base)))
-  (setq tol (/ diag 20000.0))
-  (if (< tol 0.000001) (setq tol 0.000001))
-  (while (and (null g) (< n 4))
-    (setq win (mj:scale-box base f))
-    (setq segs (mj:segs-in-box win))
-    (if (and segs (<= (length segs) 1500))
-      (progn
-        (setq g (mj:gap-scan segs tol (mj:nearest-seg segs pt)))
-        (if (and g (not (eq g 'closed))
-                 (> (caddr g) (* 0.4 (distance (car win) (cadr win)))))
-          (setq g nil)                      ;; cut off by the box, look wider
-        )
-      )
+;; one line across the opening, on the layer of the boundary it joins
+(defun mj:gap-close (g / lay e)
+  (if (and g (not (eq g 'closed)))
+    (progn
+      (setq lay (mj:seg-layer (cadddr g)))
+      (setq e (entmakex (list '(0 . "LINE")
+                              (cons 8 (if lay lay "0"))
+                              (cons 10 (car g))
+                              (cons 11 (cadr g)))))
+      (if e t nil)
     )
-    (setq f (* 3.0 f) n (1+ n))
+    nil
   )
-  g
 )
 
 ;; click inside a space -> BO -> area / perimeter text + red outline
-(defun mj:point-run (pt / e m)
+(defun mj:point-run (pt / e m g ans)
   (while pt
     (setq e (mj:boundary-from-point pt))
     (if e
@@ -1642,25 +1540,37 @@
         )
       )
       (progn
-        (prompt "\n没能生成边界（BO 失败），正在查找缺口……")
-        (if (mj:gap-report (mj:gap-search pt) 'bo)
+        (prompt "\n没能生成边界：空间没闭合。")
+        (initget "Y N")
+        (if (equal "N" (getkword "\n是否自动闭合缺口？[是(Y)/否(N)] <是>: "))
+          (prompt "\n  已跳过（可以放大到房间里再点一次，或输入 S 手动选那圈线）。")
           (progn
-            (setq e (mj:boundary-from-point pt))
-            (if e
-              (progn
-                (setq m (mj:measure e))
-                (if m
-                  (progn (mj:closed-warn m) (mj:annotate e m t))
+            (setq g (mj:gap-search pt))
+            (cond
+              ((null g)
+                (prompt "\n  没找到缺口：把视图放大到出问题的房间，再点一次。")
+              )
+              ((eq g 'closed)
+                (prompt "\n  这圈线其实是闭合的：多半是点贴在线上了，换个靠里一点的位置。")
+              )
+              ((mj:gap-close g)
+                (prompt "\n  已补上缺口，重新计算……")
+                (setq e (mj:boundary-from-point pt))
+                (if e
                   (progn
-                    (prompt "\n警告: 补上缺口后仍无法计算面积。")
-                    (mj:erase-ent e)
+                    (setq m (mj:measure e))
+                    (if m
+                      (progn (mj:closed-warn m) (mj:annotate e m t))
+                      (progn
+                        (prompt "\n警告: 补上后仍无法计算面积。")
+                        (mj:erase-ent e)
+                      )
+                    )
                   )
+                  (prompt "\n  补上这个缺口后 BO 还是失败，可能还有别的缺口。")
                 )
               )
-              (progn
-                (prompt "\n补上这个缺口后 BO 还是失败，可能还有别的缺口：")
-                (prompt "\n  再点一次可以继续找下一个；或者输入 S 手动选这圈线。")
-              )
+              (t (prompt "\n  补线失败（当前图层可能被锁定），请手动用 LINE 连一下。"))
             )
           )
         )
@@ -1779,22 +1689,35 @@
               (mj:annotate nil m nil)
             )
             (progn
-              (prompt "\n警告: 选中的线/圆弧没有拼成闭合的框，正在查找缺口……")
-              (setq box (mj:segs-box segs))
-              (setq diag (distance (list (car box) (cadr box) 0.0)
-                                   (list (caddr box) (cadddr box) 0.0)))
-              (setq tol (/ diag 20000.0))
-              (if (< tol 0.000000001) (setq tol 0.000000001))
-              (setq g (mj:gap-scan segs tol (mj:nearest-seg segs (car segs))))
-              (if (mj:gap-report g 'sel)
+              (prompt "\n选中的线没有拼成闭合的框。")
+              (initget "Y N")
+              (if (equal "N" (getkword "\n是否自动闭合缺口？[是(Y)/否(N)] <是>: "))
+                (prompt "\n  已跳过。")
                 (progn
-                  (setq m (mj:loop-metrics segs))
-                  (if m
-                    (progn
-                      (prompt "\n  补上后拼合成功。")
-                      (mj:annotate nil m nil)
+                  (setq box (mj:segs-box segs))
+                  (setq diag (distance (list (car box) (cadr box) 0.0)
+                                       (list (caddr box) (cadddr box) 0.0)))
+                  (setq tol (/ diag 20000.0))
+                  (if (< tol 0.000000001) (setq tol 0.000000001))
+                  (setq g (mj:gap-scan segs tol (mj:nearest-seg segs (car segs))))
+                  (cond
+                    ((null g)
+                      (prompt "\n  没找到明显缺口：可能框进去的线太多，或者只框到了房间的一部分。")
                     )
-                    (prompt "\n  补上后还是没拼成，可能还有别的缺口；再运行一次 MJ 重新选一遍。")
+                    ((eq g 'closed)
+                      (prompt "\n  这圈线其实首尾相接了：可能有分叉或重复线，只框这个房间的边界再试。")
+                    )
+                    ((mj:gap-close g)
+                      (setq m (mj:loop-metrics segs))
+                      (if m
+                        (progn
+                          (prompt "\n  补上后拼合成功。")
+                          (mj:annotate nil m nil)
+                        )
+                        (prompt "\n  补上后还是没拼成，可能还有别的缺口。")
+                      )
+                    )
+                    (t (prompt "\n  补线失败（当前图层可能被锁定）。"))
                   )
                 )
               )
@@ -3847,8 +3770,8 @@
   (prompt "\n  (2) 输入 S 或直接回车 -> 选择已有线框:")
   (prompt "\n      直线/圆弧拼成的闭合框、闭合多段线、圆、椭圆、闭合样条、")
   (prompt "\n      面域、图案填充，可多选、可框选。")
-  (prompt "\n  BO 失败时会自动找缺口：放大到缺口、红圈标出，问你要不要补一条线；")
-  (prompt "\n  补完立刻重算。选已有线框拼不上时也会这样找缺口。")
+  (prompt "\n  BO 失败（空间没闭合）时会问一句「是否自动闭合缺口」，选是就自动")
+  (prompt "\n  补一条线并立刻重算；选已有线框拼不上时也一样。")
   (prompt "\nMJP     同 MJ（点取内部点入口，方便单独设快捷键）")
   (prompt "\nMJSET   设置: 单位 / 小数位 / 文字高度 / 图层 / 红色线宽 / 格式")
   (prompt "\nMJCLR   删除本插件生成的标注文字和红线")

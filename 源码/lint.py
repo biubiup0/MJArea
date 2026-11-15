@@ -21,7 +21,7 @@ BUILTINS = set("""
 car cdr cadr caddr cadddr caar cddr chr close command cond cons distance
 entdel entget entlast entmake entmod entnext entupd eq equal expt findfile
 fix float foreach getenv getint getkword getpoint getreal getstring getvar
-if initget itoa last layoutlist length list listp logand mapcar max member min nth null not
+if initget itoa last layoutlist length list listp logand mapcar max member memq min nth null not
 open or numberp pi polar princ print prin1 prompt read-line rem repeat reverse rtos setq
 setvar sin cos sqrt tan ssadd ssget sslength ssname startapp strcase strcat strlen subst
 substr tblnext tblobjname tblsearch entmakex namedobjdict dictsearch dictadd dictremove dictnext namedobjdict entget entmod entdel trans type ver getfiled prog1 vl-directory-files vl-file-copy vl-file-delete vl-file-rename vl-file-size vl-mkdir vla-getboundingbox vla-get-area vla-get-perimeter
