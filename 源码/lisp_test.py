@@ -1226,6 +1226,42 @@ def main():
           not ok and "/t/y.dwg" in fs and not [k for k in fs if "mjarea" in k],
           repr((ok, fs)))
 
+
+    # 31) gap finder: walking a room boundary that has one opening
+    env["SEGS"] = ev("(list (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0)"
+                     " (list '(100.0 0.0 0.0) '(100.0 100.0 0.0) 0.0)"
+                     " (list '(100.0 100.0 0.0) '(0.0 100.0 0.0) 0.0))")
+    e = ev("(mj:chain-ends SEGS 0.001 (car SEGS))")
+    check("gap: open square -> stops at (0,100) and (0,0)",
+          close(e[0][0], 0.0) and close(e[0][1], 100.0)
+          and close(e[1][0], 0.0) and close(e[1][1], 0.0), repr(e))
+    check("gap: the opening is 100 long",
+          close(math.hypot(e[0][0] - e[1][0], e[0][1] - e[1][1]), 100.0, 1e-6),
+          repr(e))
+
+    env["SEGS2"] = ev("(list (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0)"
+                      " (list '(100.0 0.0 0.0) '(100.0 100.0 0.0) 0.0)"
+                      " (list '(100.0 100.0 0.0) '(0.0 100.0 0.0) 0.0)"
+                      " (list '(0.0 100.0 0.0) '(0.0 0.0 0.0) 0.0))")
+    e = ev("(mj:chain-ends SEGS2 0.001 (car SEGS2))")
+    check("gap: closed square -> both ends meet",
+          close(math.hypot(e[0][0] - e[1][0], e[0][1] - e[1][1]), 0.0, 1e-9),
+          repr(e))
+
+    env["SEGS3"] = ev("(list (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0)"
+                      " (list '(100.0 0.0 0.0) '(100.0 100.0 0.0) 0.0)"
+                      " (list '(0.0 100.0 0.0) '(0.0 99.0 0.0) 0.0))")
+    e = ev("(mj:chain-ends SEGS3 0.5 (car SEGS3))")
+    check("gap: a 1 unit gap is still found with tol 0.5",
+          close(e[0][1], 100.0) and close(e[1][1], 0.0), repr(e))
+
+    check("gap: box distance is 0 inside",
+          close(ev("(mj:box-dist '(50.0 50.0 0.0) (list 0.0 0.0 100.0 100.0))"), 0.0), "")
+    check("gap: box distance outside is the real offset",
+          close(ev("(mj:box-dist '(150.0 50.0 0.0) (list 0.0 0.0 100.0 100.0))"), 50.0), "")
+    check("gap: point to segment distance",
+          close(ev("(mj:pt-seg-dist '(50.0 50.0 0.0) (list '(0.0 0.0 0.0) '(100.0 0.0 0.0) 0.0))"), 50.0), "")
+
     print()
     if failures:
         print("FAILED: %d test(s): %s" % (len(failures), ", ".join(failures)))
