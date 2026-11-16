@@ -15,7 +15,7 @@
 ;;;    Rule: comments in English, Chinese text only inside strings.
 ;;; ============================================================
 
-(setq *mj-ver* "6.16")
+(setq *mj-ver* "6.17")
 
 ;; ------------------------------------------------------------
 ;; globals
@@ -3950,12 +3950,35 @@
   (princ)
 )
 
+;; v6.10 once turned the file dialog off (FILEDIA=0) and an interrupted
+;; save left it that way, so "save as" stopped showing a dialog at all.
+;; Put it back ONCE, then never touch the setting again (the marker file
+;; means a user who really wants FILEDIA=0 keeps it).
+(defun mj:fix-filedialog ( / p f)
+  (if (= 0 (getvar "FILEDIA"))
+    (progn
+      (setq p (strcat (getenv "HOME")
+                      "/Library/Application Support/Autodesk/MJArea-filedialog.ok"))
+      (if (not (findfile p))
+        (progn
+          (setvar "FILEDIA" 1)
+          (setq f (open p "w"))
+          (if f (progn (write-line "FILEDIA restored to 1" f) (close f)))
+          (prompt "\n注意: 文件对话框之前被关掉了 (FILEDIA=0)，已恢复为 1。")
+          (prompt "\n      现在“另存为/打开”会正常弹出选择窗口。")
+        )
+      )
+    )
+  )
+)
+
 ;; ------------------------------------------------------------
 ;; load banner
 ;; ------------------------------------------------------------
 (if (null *mj-loaded*)
   (progn
     (setq *mj-loaded* t)
+    (mj:fix-filedialog)
     (prompt (strcat "\nMJArea " *mj-ver*
                     " 已加载  (面积/周长标注 + 批量打印 + 瓷砖铺贴 + 解除只读)"))
     (prompt "\n命令: MJ (面积周长)   DY (批量打印)   PT (瓷砖铺贴)   设置 MJSET")

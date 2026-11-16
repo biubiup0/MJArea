@@ -1,5 +1,16 @@
 # 更新日志
 
+## v6.17 — 修复"另存为不弹窗"
+
+v6.10 的实测脚本在 `mj:save-copy` 里临时 `FILEDIA=0`（为了走命令行版 SAVEAS），
+结果那次保存卡在中途、没执行到恢复那一步，`FILEDIA` 就被永久留成了 0 ——
+于是 AutoCAD 的「另存为 / 打开」都不再弹文件对话框，只能在命令行手打路径。
+
+* 插件加载时做一次自愈：发现 `FILEDIA=0` 就改回 1，并打印一行说明；
+* 只在第一次修（`~/Library/Application Support/Autodesk/MJArea-filedialog.ok`
+  标记），之后你再想用 `FILEDIA=0` 也不会被改；
+* 实测：修复前 `FILEDIA=0`，加载后 `FILEDIA=1`，另存为弹窗恢复正常。
+
 ## v6.15 — 找到"没反应"的真正原因：是我自己的上限卡住了
 
 日志显示 `view segs=793 near=793 -> give up`：你在房间里点的时候，屏幕上
